@@ -1,0 +1,20 @@
+export("nhm","model.nhm","qmatrix.nhm","ematrix.nhm","initialprob.nhm","nhm.control")
+
+S3method(print, nhm)
+S3method(predict, nhm)
+S3method(AIC, nhm)
+S3method(anova, nhm)
+S3method(plot, nhm)
+S3method(print, nhm_score)
+S3method(print, nhm_model)
+
+importFrom("graphics", "lines", "par", "plot")
+importFrom("stats", "kmeans", "numericDeriv", "optimize", "pchisq",
+                "pnorm", "qnorm")
+importFrom("splines","bs")
+importFrom("deSolve","lsoda")
+importFrom("maxLik","maxLik")
+importFrom("parallel","mclapply")
+importFrom("mvtnorm","rmvnorm")
+
+useDynLib(nhm,.registration = TRUE)
