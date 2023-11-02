@@ -24,7 +24,7 @@ process_inputs <- function(formula,  data, covariates,covm,ecovm,initcovm) {
   names(standard_data) <- c("state","time","subject")
   if (is.factor(standard_data$state)) stop("state variable should be numeric, not a factor")
   if (any(is.na(standard_data))) stop("state, time and subject variables must not contain missing values")
-  
+
   if (!is.null(covariates)) {
 
     covariates <- unique(covariates)
@@ -70,8 +70,8 @@ process_inputs <- function(formula,  data, covariates,covm,ecovm,initcovm) {
     }else{
       standard_ecovm <- NULL
     }
-    
-    
+
+
     #Make ecovm into an array rather than list
     if (!is.null(initcovm)) {
       if (is.list(initcovm)) {
@@ -103,8 +103,8 @@ process_inputs <- function(formula,  data, covariates,covm,ecovm,initcovm) {
     standard_covariates <- data[,covmatch,drop=FALSE]
     whichfact <- sapply(1:length(covmatch), function(x) is.factor(standard_covariates[,x]))
     if (any(whichfact)) stop("Factor covariates not currently supported. Create appropriate binary dummy variables.")
-    
-    
+
+
     ###Check for missing covariate values
     if (any(is.na(standard_covariates))) {
       #Establish which rows have missing values
@@ -123,7 +123,7 @@ process_inputs <- function(formula,  data, covariates,covm,ecovm,initcovm) {
       standard_data$subject <- match(standard_data$subject,unique(standard_data$subject))
     }
     ###########
-    
+
   }else{
     standard_covariates <- standard_covm <- standard_ecovm <- standard_initcovm <- NULL
   }
@@ -179,8 +179,8 @@ dataprocess.nhm <- function(state,time,subject,covariates,ncov,splits,firstobs) 
       rem<-(1:length(covariates[,1]))[-fobs]-1
       covariates0 <- covariates[rem,,drop=FALSE]
       covariates <- 0*covariates
-      covariates[-unique(fobs),,drop=FALSE] <- covariates0
-      covariates[unique(fobs),,drop=FALSE] <- initcovs 
+      covariates[-unique(fobs),] <- covariates0  ####
+      covariates[unique(fobs),] <- initcovs      ####
     }
     uniq  <-  data.frame(unique(cbind(covariates,splitcat)))
     uniqcov <- uniq[,-dim(uniq)[2],drop=FALSE]
@@ -244,7 +244,7 @@ get_names <- function(trans,nonh,covm,covnames,model,nparper=NULL) {
     covlabel <- "Initp Covariate:"
     R <- length(trans)
   }
-  
+
   if (model!="initp") {
   n1 <- (array(paste(rep(1:R,R),rep(1:R,each=R),sep="->"),c(R,R)))
   parnamesA <- paste(label[1],sapply(1:max(trans),function(x) paste(c(n1)[which(c(trans)==x)],collapse="/")),sep=" ")
@@ -266,7 +266,7 @@ get_names <- function(trans,nonh,covm,covnames,model,nparper=NULL) {
     parnamesBb <- unlist(sapply(nparper,function(x) 1:x))
     parnamesB <- paste(rep(parnamesB,nparper),parnamesBb,sep="...")
   }
-  
+
   if (model!="initp") {
   if (!is.null(covm)) {
     Nc <- dim(covm)[3]
@@ -288,7 +288,7 @@ get_names <- function(trans,nonh,covm,covnames,model,nparper=NULL) {
     }else{
       parnamesC <-NULL
     }
-    
+
   }
   parnames <- c(parnamesA,parnamesB,parnamesC)
   if (!model%in%c("emat","initp")) {
@@ -297,7 +297,7 @@ get_names <- function(trans,nonh,covm,covnames,model,nparper=NULL) {
     if (model=="emat") {
     parclass <- rep("Emat",length(parnames))
     }else{
-    parclass <- rep("Initp",length(parnames))  
+    parclass <- rep("Initp",length(parnames))
     }
   }
   return(list(parnames=parnames,parclass=parclass))
@@ -345,7 +345,7 @@ intens_generate_gompertz <- function(trans,nonh, covm=NULL,centre_time=0,covname
   #approach would be to first establish what the mapping from x to Q is
   npar1 <- max(trans)
   npar2 <- max(nonh)
-  
+
   if (!is.null(covm)) {
     npar3 <- max(covm)
   }else{
@@ -468,7 +468,7 @@ intens_generate_weibull <- function(trans,nonh, covm=NULL,covnames=NULL) {
     }
     for (b in 1:npar2) {
       DlQ[,,npar1 + b] <- Ct[,,b]*(1 + exp(A)*(L + log(t)))
-    } 
+    }
     if (npar3 >0) {
       for (v in 1:length(z)) {
         for (b in 1:npar3) {
@@ -672,13 +672,13 @@ initp_generate.nhm <- function(initp, initcovm=NULL, nparQ, nparE, covnames=NULL
   }else{
     npar2 <-0
   }
-  
+
   #Need to set up a name generation approach for initp...
   gtname <- get_names(initp,nonh=NULL,covm=initcovm,covnames,model="initp")
-  
+
   parnames <- gtname$parnames
   parclass <- gtname$parclass
-  
+
   #Main part follows in a similar way to Qmat case:
   B <- array(0,c(length(initp),npar1))
   for (b in 1:npar1) {
@@ -692,7 +692,7 @@ initp_generate.nhm <- function(initp, initcovm=NULL, nparQ, nparE, covnames=NULL
   }
   initpI <- 1*(initp!=0)
   initpI[1] <- 1
-  
+
   outfun <- function(nsub,z,x) {
     if (is.vector(z)) z<-matrix(z,c(1,length(z)))
     EI <- lE <- E <- ip <- array(0,c(length(initp),nsub))

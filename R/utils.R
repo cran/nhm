@@ -280,7 +280,17 @@ print.nhm_score <- function(x,which_comp=NULL,...) {
     s_other <- c(t(object$g[-which_comp])%*%Iother%*%object$g[-which_comp])
     if (s_other/length(object$g[-which_comp]) > 0.1) warning("Gradient indicates the null model may not have been maximized. Score test assumes all parameters except the ones governing non-homogeneity have already been maximized")
 
-    individual_z <- object$g[which_comp]* diag(Istar)^0.5
+    individual_z <- rep(0,length(which_comp))
+    for (k in 1:length(which_comp)) {
+      include <- c((1:dim(object$I)[1])[-which_comp],which_comp[k])
+      #Rearrange I so k is last component
+      I_k <- object$I[include,include,drop=FALSE]
+      #Extract the diagonal component of I^-1 corresponding to k
+      Istar_k <- diag((solve(I_k)))[length(include)]
+     individual_z[k] <- object$g[which_comp[k]]*Istar_k^0.5
+    }
+
+    #individual_z <- object$g[which_comp]* diag(Istar)^0.5 #Implemented in v0.1.0
     combined_z <- c(t(object$g[which_comp])%*%Istar%*%(object$g[which_comp]))
 
     mat <- round(cbind(c(individual_z,combined_z),c(2*(1-pnorm(abs(individual_z))),1-pchisq(combined_z,df=length(which_comp)))),4)
@@ -387,13 +397,16 @@ ematrix.nhm <- function(object, covvalue=NULL) {
   if (is.null(covvalue) & ncov>0) {
     covvalue <- model$covmeans
   }
-
+  if (!is.null(covvalue) & ncov==0) warning("Model has no covariates: supplied values ignored.")
   R <- nstate
   #Should do every non-zero transition because covariates effects may be different.
   emat_nhm <- model$model_object$emat_nhm
   #Is somewhat annoying that have to deal with the intens function when shouldn't have to
+  if (ncov>0) {
   E <- emat_nhm(state=1:R, t=0, z=array(rep(covvalue,each=R),c(R,length(covvalue))),x=par,intens=NULL,override=TRUE)
-
+  }else{
+  E <- emat_nhm(state=1:R, t=0, z=NULL,x=par,intens=NULL,override=TRUE)
+  }
   #Just do a basic Delta method SE for now...
   emat <- E$e
   SEemat <- array(0,dim(emat))

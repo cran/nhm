@@ -1,0 +1,7 @@
+Changes in version 0.1.1 (2023-11-02)
+
+* Fixed bug in model.nhm that occurred if a bespoke model was specified without including the number of parameters as an attribute in the intens function.
+* Fixed bug in ematrix.nhm when a null covvalue is supplied.
+* Fixed an error in the way in which individual component-wise p-values are calculated for the score test (in print.nhm_score). The vignette has also been updated to give correct results for the example.
+* Fixed bug when a model of Weibull type is specified with no time-dependent terms.
+* Fixed bug in dataprocess.nhm that occurred if a model with covariates and estimated initp was specified with firstobs="misc" (thanks to Emmett Kendall for the report).

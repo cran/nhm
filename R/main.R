@@ -61,6 +61,7 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
     warning("No nonh matrix supplied. Assuming a time homogeneous model")
   }
   if (max(nonh)==0 & type!="gompertz") {
+    type <- "gompertz"
     warning("nonh matrix implies a homogeneous model")
   }
   }else{
@@ -70,6 +71,7 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
   }
   if (is.null(covariates) & !is.null(covm)) warning("covm supplied but covariates argument missing: covm will be ignored")
   if (!is.logical(death)) stop("death must be TRUE/FALSE")
+  if (death & is.null(death.states)) warning("No death.states specified for a model with exact death times.")
   if (!death & !is.null(death.states)) warning("death.states specified for a model without exact death times.")
   if (is.null(censor) & !is.null(censor.states)) stop("censor.states specified without specifying the censoring label(s)")
   if (!is.null(firstobs)) {
@@ -139,7 +141,7 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
     nparQ <- attr(intens,"npar")
     if (is.null(nparQ)) {
       ###Attempt to infer the number of parameters
-       nparQ <- dim(intens(0,rep(0,dim(covariates))[1],rep(0,1000))$qp)[3]
+       nparQ <- dim(intens(0,rep(0,dim(covariates)[2]),rep(0,1000))$qp)[3]
       warning("Number of parameters in intensities model inferred from the dimension of the derivative matrix.")
     }
   }
@@ -258,11 +260,11 @@ nhm  <-  function(
   fixedpar=NULL
 )
 {
-  if (class(model_object)!="nhm_model") stop("model_object must be created using model.nhm")
+  if (!inherits(model_object,"nhm_model")) stop("model_object must be created using model.nhm")
   if (missing(control)) {
     control <- nhm.control(checks = (model_object$type=="bespoke"))
   }
-  if (class(control)!="nhm_control") stop("control object must be made using nhm.control")
+  if (!inherits(control,"nhm_control")) stop("control object must be made using nhm.control")
   tmax <- control$tmax
   coarsen <- control$coarsen
   coarsen.vars <- control$coarsen.vars
@@ -524,6 +526,8 @@ nhm.control <- function(tmax=NULL, coarsen=FALSE, coarsen.vars=NULL, coarsen.lv=
   }
   if (!is.null(fishscore)) {
     if (!is.logical(fishscore)) stop("fishscore must be a logical")
+  }else{
+    fishscore <- FALSE
   }
   if (!is.numeric(print.level)) stop("print.level must be numeric")
   controll <- list(tmax=tmax, coarsen=coarsen, coarsen.vars=coarsen.vars, coarsen.lv=coarsen.lv, checks=checks,rtol=rtol, atol=atol, linesearch=linesearch, damped=damped, damppar=damppar,obsinfo=obsinfo,splits=splits,ncores=ncores,print.level=print.level,maxLikcontrol=maxLikcontrol,fishscore=fishscore)
