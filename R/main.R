@@ -1,5 +1,9 @@
 
-model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,nonh=NULL, covm=NULL, centre_time=NULL, emat=NULL, ecovm=NULL, firstobs=NULL, initp=NULL, initp_value=NULL, initcovm=NULL, splinelist=NULL,degrees=NULL,censor=NULL,censor.states=NULL,death=FALSE,death.states=NULL,intens=NULL) {
+####MODIFIED VERSIONS OF THE FUNCTIONS TO ACCOUNT FOR LEFT TRUNCATION AND/OR AGE DEPENDENT INITIAL PROBS FOR MISCLASSIFICATION MODELS.
+####IDEALLY WILL ALSO NEED TO ALLOW NON-SQUARE MATRICES FOR EMAT SO THAT PHASE-TYPE STYLE SEMI-MARKOV MODELS ARE POSSIBLE.
+
+
+model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,nonh=NULL, covm=NULL, centre_time=NULL, emat=NULL, ecovm=NULL, firstobs=NULL, initp=NULL, initp_value=NULL, initcovm=NULL, splinelist=NULL,degrees=NULL,censor=NULL,censor.states=NULL,death=FALSE,death.states=NULL,intens=NULL, inform=NULL, ltruncation_states=NULL, ltruncation_time=NULL, ltruncation_entry=NULL, phasemap=NULL) {
   #formula: A formula identifying the state and time variable names within the data e.g. state ~ time
   #data: data frame containing including the observed states, observation times, subject identifers and any covariates. NB: covariates cannot be factors.
   #subject: The name of the subject (id) variable within the data
@@ -9,11 +13,11 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
   #nonh: square matrix to indicate non-homogeneous transitions. Impossible transitions or homogeneous transitions should be 0. Otherwise label consecutively. Labelling the same value implies the same non-homogeneity.
   #covm: Either a nstate x nstate x ncov array to indicate covariate effects, where ncov is the same as the length of the covariates vector OR a named list of nstate x nstate matrices to indicate covariate effects for individual covariates.
   #centre_time: For gomertz models only: value by which to centre times in the gompertz model (to improve convergence)
-  #emat: square matrix of viable misclassification errors. Impossible errors should be 0. Others should be labelled consecutively. Labelling transitions with the same value assumes the parameter is shared.
+  #emat: either: a matrix of viable misclassification errors. Impossible errors should be 0. Others should be labelled consecutively. Labelling transitions with the same value assumes the parameter is shared. Alternatively can be a function that meets the requirements.
   #ecovm: Either a nstate x nstate x ncov array to indicate covariate effects on misclassification, where ncov is the same as the length of the covariates vector OR a named list of nstate x nstate matrices to indicate misclassification covariate effects for individual covariates
-  #firstobs: For misclassification models; whether the first observation is exactly observed ("exact") or is absent and as such the state should be ignored. Defaults to "exact".
-  #initp: For misclassification models where firstobs="absent" or "misc", the initial state probabilites. Only required if initial probabilites to be estimated: A vector of length nstate indicating which parameters to be estimated. Same convention as with qmat. First entry should be zero.
-  #initp_value: For misclassification models where firstobs="absent" or "misc": Value of the initial state probabilities, treated as fixed if initp is missing.
+  #firstobs: For misclassification models; whether the first observation is exactly observed ("exact") or is absent and as such the state should be ignored. Defaults to "exact"
+  #initp: For misclassification models where firstobs="absent" or "misc", the initial state probabilites.Also used for models without misclassification if left-truncation is present. Only required if initial probabilites to be estimated: A vector of length nstate indicating which parameters to be estimated. Same convention as with qmat. First entry should be zero.
+  #initp_value: For misclassification models where firstobs="absent" or "misc", or models with left-truncation: Either the value of the initial state probabilities, treated as fixed if initp is missing.
   #initcovm: For misclassification models where firstobs="absent" or "misc" and est_initp=TRUE: Either a nstate x ncov matrix to indicate covariate effects, or a named list of vectors of length nstate to indicate covariate effects for the initial probability vector. Will use the covariates supplied at the initial time for this.
   #splinelist: For bspline models only: list (of length equal to the number of nonhomogeneous transitions) of knot point locations including the boundary knots.
   #degrees: For bspline models only: optional vector (of length equal to number of nonhomogeneous transitions) of degrees of splines. Defaults to 3 if not specified.
@@ -22,10 +26,14 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
   #death: Whether exact death times are present in the data set
   #death.states: Which states have exact death times. Otherwise ignored.
   #intens: Optional supplied intensity function. See elsewhere for requirements on the function.
-
+  #inform: square matrix to indicate which transitions to be included in testing for informative observation. Primarily used only through informative_test.nhm
+  #ltruncation_states: Set of states that the patient must have been in at their initial observation time in order to be in the sample. Only necessary if have delayed entry and patients aren't sampled representatively amongst those alive
+  #ltruncation_time: The origin time used for the left-truncation contribution. If omitted and ltruncation_states included, it will default to 0.
+  #ltruncation_entry: Which observation in the sequence refers to their entry point. Defaults to 1 if omitted.
+  ####For now assume that left truncation can only be included in misclassification models.
   #Run checks:
   if (!is.data.frame(data)) stop("data must be a data.frame object")
-
+  data <- as.data.frame(data) #Coerce tibbles to be data.frame only.
   call <- match.call()
   indx <- match(c("subject"), names(call), nomatch = 0)
   if (indx!=0) {
@@ -43,37 +51,45 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
   if (!identical(unique(diag(trans)),0)) warning("trans matrix contains diagonal entries which will be ignored.")
   diag(trans) <- 0
   if (type!="bespoke") {
-  if (length(unique(c(trans)))!=max(trans)+1) {
-    stop("Parameters in the trans matrix must be numbered consecutively from 1")
-  }
-  #Check the nonh matrix
-  if (!is.null(nonh)) {
-    if (!is.matrix(nonh)) stop("nonh must be a matrix")
-    if (dim(nonh)[1]!=dim(nonh)[2]) stop("nonh must be a square matrix")
-    if (!identical(unique(diag(nonh)),0)) warning("trans matrix contains diagonal entries which will be ignored.")
-    diag(nonh) <- 0
-    if (length(unique(c(nonh)))!=max(nonh)+1) {
-      stop("Parameters in the nonh matrix must be numbered consecutively from 1")
+    if (length(unique(c(trans)))!=max(trans)+1) {
+      stop("Parameters in the trans matrix must be numbered consecutively from 1")
     }
-  }else{
-    nonh <- array(0,dim(trans))
-    type <- "gompertz"
-    warning("No nonh matrix supplied. Assuming a time homogeneous model")
-  }
-  if (max(nonh)==0 & type!="gompertz") {
-    type <- "gompertz"
-    warning("nonh matrix implies a homogeneous model")
-  }
+    #Check the nonh matrix
+    if (!is.null(nonh)) {
+      if (!is.matrix(nonh)) stop("nonh must be a matrix")
+      if (dim(nonh)[1]!=dim(nonh)[2]) stop("nonh must be a square matrix")
+      if (!identical(unique(diag(nonh)),0)) warning("trans matrix contains diagonal entries which will be ignored.")
+      diag(nonh) <- 0
+      if (length(unique(c(nonh)))!=max(nonh)+1) {
+        stop("Parameters in the nonh matrix must be numbered consecutively from 1")
+      }
+    }else{
+      nonh <- array(0,dim(trans))
+      type <- "gompertz"
+      warning("No nonh matrix supplied. Assuming a time homogeneous model")
+    }
+    if (max(nonh)==0 & type!="gompertz") {
+      type <- "gompertz"
+      warning("nonh matrix implies a homogeneous model")
+    }
   }else{
     if (!is.null(covm) | !is.null(nonh)) {
       warning("covm  and nonh not required for bespoke models. Argument(s) ignored.")
     }
   }
   if (is.null(covariates) & !is.null(covm)) warning("covm supplied but covariates argument missing: covm will be ignored")
+  if (is.null(covariates) & !is.null(inform)) {
+    if (max(inform) > 0) stop("models with inform term must include a covariate")
+  }
   if (!is.logical(death)) stop("death must be TRUE/FALSE")
   if (death & is.null(death.states)) warning("No death.states specified for a model with exact death times.")
   if (!death & !is.null(death.states)) warning("death.states specified for a model without exact death times.")
   if (is.null(censor) & !is.null(censor.states)) stop("censor.states specified without specifying the censoring label(s)")
+  if (!is.null(phasemap) & type!="bespoke") stop("phasemap can currently only be used with bespoke intensity models.")
+  if (is.null(phasemap)) phasemap <- 1:dim(trans)[1]
+  if (length(phasemap)!=dim(trans)[1]) stop("phasemap must be a vector of length equal to the number of (latent) states")
+  if (length(unique(phasemap))!=max(phasemap)) stop("Invalid phasemap vector")
+  nostate <- max(phasemap)
   if (!is.null(firstobs)) {
     if (is.null(emat)) {
       warning("firstobs only relevant for misclassification models")
@@ -87,22 +103,33 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
   covm <- initial_process$covm
   ecovm <- initial_process$ecovm
   initcovm <- initial_process$initcovm
+  covused <- initial_process$covused
+
+  ###For bespoke models, see if intens function specifies which covariates are used####
+  if (type=="bespoke") {
+    covused <- attr(intens,"covused")
+    if (is.null(covused) & length(covariates)>0) {
+      covused <- rep(1,length(covariates))
+    }
+  }
+  #############
 
   #if (!"state"%in%names(data) | !"time"%in%names(data) | !"subject"%in%names(data)) {
   #  stop("data must contain 'state', 'time' and 'subject' columns")
   #}
-  possiblestates <- c(1:dim(trans)[1],unlist(censor))
+  #possiblestates <- c(1:dim(trans)[1],unlist(censor))
+  possiblestates <- c(1:max(phasemap),unlist(censor))
   if (any(!data$state%in%possiblestates)) stop("State vector includes values inconsistent with the model specification")
   if (any(!possiblestates%in%unique(data$state))) {
     absentstates <- paste(possiblestates[!possiblestates%in%unique(data$state)],collapse=", ")
     warning(paste("Some expected states not present in the data:",absentstates,sep=" "))
   }
 
-  #Ensure censoring only occurs as last observation
-  if (!is.null(censor) & sum(data$state%in%censor)>0) {
+  #Ensure censoring only occurs as last observation if not a misclassification model
+  if (!is.null(censor) & sum(data$state%in%censor)>0 & is.null(emat)) {
     sub <- tapply(1:length(data$subject),data$subject,max)
     cenmin <- tapply(1:length(data$subject),list(data$subject,1*(data$state %in% censor)),min)[,2]
-    if (sum((sub - cenmin)[!is.na(cenmin)] !=0)>0) stop("Only final state for a subject can be censored")
+    if (sum((sub - cenmin)[!is.na(cenmin)] !=0)>0) stop("Only final state for a subject can be censored for a non-misclassification model.")
   }
 
 
@@ -113,16 +140,26 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
 
 
   if (!is.null(emat)) {
-    if (!identical(dim(trans),dim(emat))) stop("emat must be the same dimension as trans")
-    if (!identical(unique(diag(emat)),0)) warning("emat matrix contains diagonal entries which will be ignored.")
-    diag(emat) <- 0
-    ematpars <- max(emat)
-    if (length(unique(c(emat)))!=max(emat)+1) {
-      stop("Parameters in the emat matrix must be numbered consecutively from 1")
+    if (!is.function(emat)) {   ###############
+      if (dim(emat)[1]!=nostate) stop("emat must either be the same dimension as trans or be consistent with the number of observed states specified by phasemap")
+      if (dim(emat)[2]!=nostate) stop("emat must either be the same dimension as trans or be consistent with the number of observed states specified by phasemap")
+      #if (!identical(dim(trans),dim(emat))) stop("emat must be the same dimension as trans")
+      if (!identical(unique(diag(emat)),0)) warning("emat matrix contains diagonal entries which will be ignored.")
+      diag(emat) <- 0
+      ematpars <- max(emat)
+      if (length(unique(c(emat)))!=max(emat)+1) {
+        stop("Parameters in the emat matrix must be numbered consecutively from 1")
+      }
+      if (!is.null(ecovm)) ematpars <- ematpars + max(ecovm)
+      if (!is.null(initp)) ematpars <- ematpars + max(initp)
+      if (!is.null(initcovm)) ematpars <- ematpars + max(initcovm)
+    }else{
+      #NEED TO DO CHECKS OF THE SUPPLIED FUNCTION IDEALLY.
+      ematpars <- attr(emat,"npar")
+      if (is.null(ematpars)) stop("Bespoke emat functions must include an npar attribute")
+      if (!is.null(ecovm)) warning("ecovm not used if a bespoke emat function supplied.")
+      #Need to do something with the parameter names...
     }
-    if (!is.null(ecovm)) ematpars <- ematpars + max(ecovm)
-    if (!is.null(initp)) ematpars <- ematpars + max(initp)
-    if (!is.null(initcovm)) ematpars <- ematpars + max(initcovm)
   }else{
     if (!is.null(ecovm)) warning("ecovm only relevant to misclassification models. Term ignored. Add an emat term, if desired.")
     ematpars <- 0
@@ -135,13 +172,14 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
     if (is.null(trans) | is.null(nonh)) stop("trans and nonh must be supplied if not using a user supplied intens function")
     if (!identical(dim(trans),dim(nonh))) stop("trans and nonh should be the same dimension")
     if (!is.null(intens)) warning("Supplied intens ignored. Set type to bespoke if want a user supplied function")
-    intens <- intens_generate.nhm(type=type,trans = trans,nonh = nonh,covm=covm,centre_time = centre_time,splinelist = splinelist,degrees=degrees, covnames=names(covariates))
+    intens <- intens_generate.nhm(type=type,trans = trans,nonh = nonh,covm=covm,inform=inform, centre_time = centre_time,splinelist = splinelist,degrees=degrees, covnames=names(covariates))
     nparQ <- attr(intens,"npar")
   }else{
+    if (!is.null(inform)) warning("Supplied inform matrix ignored. Informative observation testing can only be performed via a built in model")
     nparQ <- attr(intens,"npar")
     if (is.null(nparQ)) {
       ###Attempt to infer the number of parameters
-       nparQ <- dim(intens(0,rep(0,dim(covariates)[2]),rep(0,1000))$qp)[3]
+      nparQ <- dim(intens(0,rep(0,dim(covariates)[2]),rep(0,1000))$qp)[3]
       warning("Number of parameters in intensities model inferred from the dimension of the derivative matrix.")
     }
   }
@@ -150,6 +188,34 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
     firstobs <- "exact"
   }
 
+  #Checks regarding left-truncation.
+  if (!is.null(ltruncation_states)) {
+    if (is.null(emat)) {
+      emat <- diag(0,dim(trans)[1])
+    }
+    if (firstobs=="exact" & max(emat)>0) {
+      stop("Exact initial observations not supported for left-truncated data with misclassification.")
+    }
+    if (firstobs=="absent") stop("Absent first observations not currently supported for left-truncated data - firstobs should be \'misc'\ or \'exact\'.")
+    if (is.null(initp) & is.null(initp_value)) {
+      initp_value <- c(1,rep(0,dim(trans)[1]-1))
+      warning("No initp value supplied for left-truncation. Assume all patients start in state 1")
+    }
+    if (is.null(ltruncation_time)) {
+      ltruncation_time <- 0
+    }
+    if (length(ltruncation_time)>1) stop("ltruncation_time must be a scalar")
+    if (is.null(ltruncation_entry)) {
+      ltruncation_entry <-1
+    }
+    if (length(ltruncation_entry)>1) stop("ltruncation_entry must be a scalar")
+    ltrunc <-list(ltruncation_states=ltruncation_states, ltruncation_time=ltruncation_time,ltruncation_entry=ltruncation_entry)
+  }else{
+    if (!is.null(ltruncation_time) | !is.null(ltruncation_entry)) {
+      warning("ltruncation_states not specified so left truncation terms ignored.")
+    }
+    ltrunc <- NULL
+  }
 
   if (!is.null(emat)) {
     nparI <-0
@@ -159,8 +225,13 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
     }else{
       if (!is.null(initcovm)) warning("initcovm ignored: only relevant if initial probabilities estimated. Add an initp term, if required.")
     }
-    emat_nhm <- emat_generate.nhm(emat, ecovm, censor, censor.states, death, death.states, intens, nparQ,nparI,covnames=names(covariates))
-    nparE <- attr(emat_nhm,"npar")
+    if (!is.function(emat)) {
+      emat_nhm <- emat_generate.nhm(emat, ecovm, censor, censor.states, death, death.states, intens, nparQ,nparI,covnames=names(covariates),phasemap=phasemap,ltrunc=ltrunc)
+      nparE <- attr(emat_nhm,"npar")
+    }else{
+      emat_nhm <- emat_generate_bespoke.nhm(emat, censor, censor.states, death, death.states, intens, nparQ,nparI,covnames=names(covariates),phasemap=phasemap,ltrunc=ltrunc)
+      nparE <- attr(emat_nhm,"npar")
+    }
     initp_nhm <- NULL
     if (is.null(initp)) {
       est_initp <- FALSE
@@ -170,7 +241,7 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
     if (is.null(initp_value)) {
       initp_value <- c(1,rep(0,dim(trans)[1]-1))
     }else{
-      if (firstobs=="exact") warning("Supplied initp vector will be ignored. Specify firstobs=\"absent\" if unknown initial probabilities desired.")
+      if (firstobs=="exact") warning("Supplied initp vector will be ignored. Specify firstobs=\"absent\" or \"misc\" if unknown initial probabilities desired.")
       if (length(initp_value)!=dim(trans)[1]) stop("Supplied initial probability vector must match the number of states")
       if (min(initp_value) < 0) stop("Invalid initial probability vector")
       if (sum(initp_value)!=1) {
@@ -178,13 +249,13 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
         initp_value <- initp_value/sum(initp_value)
       }
     }
-      if (est_initp) {
-        initp_nhm <- initp_generate.nhm(initp, initcovm, nparQ,nparE,covnames=names(covariates))
-        #Should a function still be made otherwise?
-        nparI <- attr(initp_nhm,"npar")
-      }else{
-        nparI <- 0
-      }
+    if (est_initp) {
+      initp_nhm <- initp_generate.nhm(initp, initcovm, nparQ,nparE,covnames=names(covariates))
+      #Should a function still be made otherwise?
+      nparI <- attr(initp_nhm,"npar")
+    }else{
+      nparI <- 0
+    }
   }else{
     if (!is.null(initp) | !is.null(initcovm) | !is.null(initp_value)) warning("Initial probabilities only relevant to misclassification models.")
     nparI <- 0
@@ -203,10 +274,11 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
       if (any(!unlist(censor.states)%in%(1:dim(trans)[1]))) stop("Invalid censor.states term")
     }
     for (i in 1:length(censor)) {
-      data$state[data$state==censor[i]]<-i+dim(trans)[1]
+      #data$state[data$state==censor[i]]<-i+dim(trans)[1]
+      data$state[data$state==censor[i]]<-i+nostate
     }
-    censor <- dim(trans)[1] + 1:length(censor)
-
+    #censor <- dim(trans)[1] + 1:length(censor)
+    censor <- nostate + 1:length(censor)
     if (!is.list(censor.states)) {
       censor.states <- list(censor.states)
     }
@@ -215,6 +287,15 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
 
   data$subject <- match(data$subject,unique(data$subject))
 
+
+
+  ###Check for datasets with single non-informative observations included.
+  if (is.null(ltruncation_states)) {
+    if (is.null(emat) | !firstobs%in%"misc") {
+      minobs <- min(table(data$subject))
+      if (minobs==1) stop("Some patients only have 1 observation and so do not contribute to the likelihood. Please remove them from the dataset.")
+    }
+  }
   output <- list()
   output$npar <- nparQ + nparE + nparI
   output$nparQ <- nparQ #Needed to check the intens function correctly.
@@ -224,6 +305,8 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
     output$ncov <- 0
   }
   output$nstate <- dim(trans)[1]
+  output$nostate <- nostate
+  output$phasemap <- phasemap
   output$state <- data$state
   output$time <- data$time
   output$subject <- data$subject
@@ -238,6 +321,7 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
   output$initp <- initp_value
   output$intens <- intens
   output$trans <- trans
+  output$inform <- inform
   output$parnames <- attr(intens,"parnames")
   output$parclass <- attr(intens,"parclass")
   if (output$hidden) {
@@ -246,25 +330,34 @@ model.nhm <- function(formula,  data, subject, covariates=NULL,  type, trans,non
     output$parnames <- c(output$parnames,attr(emat_nhm,"parnames"),attr(initp_nhm,"parnames"))
     output$parclass <- c(output$parclass,attr(emat_nhm,"parclass"),attr(initp_nhm,"parclass"))
   }
+  output$covused <- covused
   class(output) <- "nhm_model"
   return(output)
 }
 
 
+
 nhm  <-  function(
-  model_object, #nhm_model object created using model.nhm
-  initial=NULL, #Vector of initial parameter values
-  gen_inits=FALSE, #Whether to automatically generate initial values (only available for models without misclassification)
-  control, #Object of class nhm.control specifying various settings for the solution of the KFEs and the optimization. Default is nhm.control(...)
-  score_test=FALSE, #Whether a score test at the initial values should be performed.
-  fixedpar=NULL
+    model_object, #nhm_model object created using model.nhm
+    initial=NULL, #Vector of initial parameter values
+    gen_inits=FALSE, #Whether to automatically generate initial values (only available for models without misclassification)
+    control, #Object of class nhm.control specifying various settings for the solution of the KFEs and the optimization. Default is nhm.control(...)
+    score_test=FALSE, #Whether a score test at the initial values should be performed.
+    fixedpar=NULL
 )
 {
   if (!inherits(model_object,"nhm_model")) stop("model_object must be created using model.nhm")
   if (missing(control)) {
     control <- nhm.control(checks = (model_object$type=="bespoke"))
   }
-  if (!inherits(control,"nhm_control")) stop("control object must be made using nhm.control")
+  if (!inherits(control,"nhm_control")) {
+    if (is.list(control)) {
+      if (any(!names(control)%in%names(formals(nhm.control)))) stop("Invalid control argument. See ?nhm.control for details")
+      control <- do.call(nhm.control, args=control)
+    }else{
+      stop("Invalid control argument. See ?nhm.control for details")
+    }
+  }
   tmax <- control$tmax
   coarsen <- control$coarsen
   coarsen.vars <- control$coarsen.vars
@@ -277,10 +370,16 @@ nhm  <-  function(
   damppar <- control$damppar
   hessian <- control$obsinfo
   splits <- control$splits
+  safe <- control$safe
   ncores <- control$ncores
   print.level <- control$print.level
   maxLikcontrol <- control$maxLikcontrol
+  nlminb_control <- control$nlminb_control ####
+  nlminb_scale <- control$nlminb_scale ####
   fishscore <- control$fishscore
+  constrained <- control$constrained ####
+  lower_lim <- control$lower_lim  ####
+  upper_lim <- control$upper_lim  ####
   hessmeth <- ifelse(hessian,TRUE,"bhhh")
   npar <- model_object$npar
   nparQ <- model_object$nparQ
@@ -296,10 +395,14 @@ nhm  <-  function(
   death.states <- model_object$death.states
   hidden <- model_object$hidden
   intens <- model_object$intens
+  attr(intens,"parallel_hess") <- control$parallel_hess
   emat_nhm <- model_object$emat_nhm
   initp <- model_object$initp
   firstobs <- model_object$firstobs
   initp_nhm <- model_object$initp_nhm
+  inform <- model_object$inform
+  ltrunc <- attr(emat_nhm,"ltrunc")
+  covused <- model_object$covused
   if (is.null(initial) & hidden) stop("Initial values must be supplied for models with misclassification")
   if (is.null(initial) & !gen_inits) stop("Initial values must be supplied if gen_inits=FALSE")
   if (is.null(initial) & !is.null(fixedpar)) stop("Initial values must be supplied if fixedpar are specified")
@@ -375,36 +478,25 @@ nhm  <-  function(
       if (max(vs)>1e-8) stop("Exact death times can only be attributed to absorbing states!")
     }
   }
+  if (!is.null(inform) & !score_test) warning("Full fitting of a model with informative observation terms will not give a sensible results. Use score_test=TRUE.")
 
-
-  processed <- dataprocess.nhm(state,time,subject,covariates,ncov,splits,firstobs) #Include firstobs in the data processing step.
-
-  #Now need to pass across the final covariate values (at least if exact=TRUE)
+  processed <- dataprocess.nhm(state,time,subject,covariates,ncov,splits,firstobs,safe,ltrunc,covused) #Include firstobs in the data processing step.
+  #time_check(processed$timesets)
   finalcovs <- processed$finalcovs
+
   if (hidden) {
+    attr(emat_nhm,"ltrunc") <- processed$ltrunc
     init_state <- processed$init_state
+    if (any(unique(init_state)%in% censor) & firstobs=="exact") stop("First observations include censored states. Change to firstobs=\'misc\'")
     initcovs <- processed$initcovs
-    if (firstobs%in%c("exact","absent")) {
-    fobs <- rep(tapply(1:length(subject),subject,min),table(subject))
-    statel <- state[-fobs]
-    timel <- time[-fobs]
-    subjectl <- subject[-fobs]
-    if (ncov>0) {
-      cov2 <- covariates[-fobs,,drop=FALSE]
-    }else{
-      cov2 <- NULL
-    }
-    }else{
-      statel <- state
-      timel <- time
-      subjectl <- subject
-      if (ncov>0) {
-        cov2 <- covariates
-      }else{
-        cov2 <- NULL
-      }
-    }
+    #Additional processing for models with hidden states
+    hiddenout <- hidden_process(state, time, subject, covariates, processed, firstobs, ncov)
+    cov2 <- hiddenout$cov2
+    statel <- hiddenout$statel
+    timel <- hiddenout$timel
+    subjectl <- hiddenout$subjectl
   }
+
 
   if (is.null(fishscore)) {
     fishscore <- FALSE
@@ -437,7 +529,15 @@ nhm  <-  function(
       }
     }else{
       #Note that this requires version 0.8 or above of maxLik to ensure the gradient is actually used in optimization.
-      if (!score_test) fit <- maxLik(bhhh.nhm,start=initval,method="BHHH",print.level=print.level,finalHessian=hessmeth,control=maxLikcontrol,npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,tcrit=tmax,fishscore=FALSE,indout=TRUE,sublist=processed$sublist,nsub=processed$nsub,rtol=rtol,atol=atol,intens=intens,finalcovs=finalcovs,gensolve=gensolve,ncores=ncores,fixedpar=fixedpar,fixval=fixval)
+      if (!score_test) {
+        if (!constrained) {
+          fit <- maxLik(bhhh.nhm,start=initval,method="BHHH",print.level=print.level,finalHessian=hessmeth,control=maxLikcontrol,npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,tcrit=tmax,fishscore=FALSE,indout=TRUE,sublist=processed$sublist,nsub=processed$nsub,rtol=rtol,atol=atol,intens=intens,finalcovs=finalcovs,gensolve=gensolve,ncores=ncores,fixedpar=fixedpar,fixval=fixval)
+        }else{
+          opt_config <- list()
+          opt_env <- environment()
+          fit <- stats::nlminb(start=initval,objective=nlminb_obj.nhm,gradient=nlminb_grad.nhm,hessian=nlminb_hess.nhm,scale=nlminb_scale,control=nlminb_control,lower=lower_lim, upper=upper_lim, npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,tcrit=tmax,fishscore=FALSE,indout=TRUE,sublist=processed$sublist,nsub=processed$nsub,rtol=rtol,atol=atol,intens=intens,finalcovs=finalcovs,gensolve=gensolve,ncores=ncores,fixedpar=fixedpar,fixval=fixval,opt_env=opt_env)
+        }
+      }
       if (score_test) {
         out <- bhhh.nhm(initval,npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,tcrit=tmax,fishscore=FALSE,indout=TRUE,sublist=processed$sublist,nsub=processed$nsub,rtol=rtol,atol=atol,intens=intens,gensolve=gensolve,finalcovs=finalcovs,ncores=ncores,fixedpar=fixedpar,fixval=fixval)
         #Determine
@@ -448,89 +548,166 @@ nhm  <-  function(
         class(output) <-"nhm_score"
         return(output)
       }
-      fitmodel <- list(par=c(fit$estimate),value=-fit$maximum,grad=fit$gradient,hess=-fit$hessian)
+      #Will now need to do a different thing depending on BHHH or nlminb to get into same format
+      if (!constrained) {
+        fitmodel <- list(par=c(fit$estimate),value=-fit$maximum,grad=fit$gradient,hess=-fit$hessian)
+      }else{
+
+
+        if (hessian) {
+          #Check any parameters at boundary, if so add or substract 1e-5, as appropriate.
+          fd_par <- fit$par
+          if (any(fit$par < lower_lim +1e-5)) {
+            whp <- which(fit$par < lower_lim + 1e-5)
+            fd_par[whp] <- fd_par[whp]+1e-5
+          }
+          if (any(fit$par > upper_lim -1e-5)) {
+            whp <- which(fit$par > lower_lim - 1e-5)
+            fd_par[whp] <- fd_par[whp]-1e-5
+          }
+          print("Computing Hessian by finite-differences")
+          hess<- finitedifferences.nhm(fd_par, npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,tcrit=tmax,rtol=rtol,atol=atol,intens=intens,gensolve=gensolve,ncores=ncores,fixedpar=fixedpar,fixval=fixval)
+        }else{
+          hess<-opt_config$hess
+        }
+
+
+
+        #Need to do extra work to get the gradient and hessian...
+        #out <- bhhh.nhm(initval,npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,tcrit=tmax,fishscore=FALSE,indout=TRUE,sublist=processed$sublist,nsub=processed$nsub,rtol=rtol,atol=atol,intens=intens,gensolve=gensolve,finalcovs=finalcovs,ncores=ncores,fixedpar=fixedpar,fixval=fixval)
+        #Determine
+        #grad <- attr(out,"grad")
+        #g <- apply(grad,2,sum)
+        #I <- apply(array(apply(grad,1,function(x) outer(x,x)),c(length(g),length(g),processed$nsub)),c(1,2),sum)
+        fitmodel <- list(par=fit$par, value=fit$objective,grad=opt_config$grad,hess=hess)
+        #fitmodel <- list(par=fit$par, value=fit$objective,grad=g,hess=I)
+      }
     }
   }else{
     #At the moment this is just the single value!
-    if (!score_test) fit <- maxLik(bhhh.nhm,start=initval,method="BHHH",print.level=print.level,finalHessian=hessmeth,control=maxLikcontrol,npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,tcrit=tmax,fishscore=FALSE,obslist=processed$obslist,state=statel,subject=subjectl,time=timel,indout=TRUE,init_state=init_state,cov2=cov2,sublist=processed$sublist,nsub=processed$nsub,rtol=rtol,atol=atol,intens=intens,gensolve=gensolve,emat_nhm=emat_nhm,ncores=ncores,firstobs=firstobs,initp=initp,initcovs=initcovs,finalcovs=finalcovs,initp_nhm=initp_nhm,nparQ=nparQ,fixedpar=fixedpar,fixval=fixval)
-    if (score_test) {
-      out <- bhhh.nhm(initval,npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,tcrit=tmax,fishscore=FALSE,obslist=processed$obslist,state=statel,subject=subjectl,time=timel,init_state=init_state,indout=TRUE,cov2=cov2,sublist=processed$sublist,nsub=processed$nsub,rtol=rtol,atol=atol,intens=intens,gensolve=gensolve,emat_nhm=emat_nhm,ncores=ncores,firstobs=firstobs,initp=initp,initcovs=initcovs,finalcovs=finalcovs,initp_nhm=initp_nhm,nparQ=nparQ,fixedpar=fixedpar,fixval=fixval)
-      grad <- attr(out,"grad")
-      g <- apply(grad,2,sum)
-      I <- apply(array(apply(grad,1,function(x) outer(x,x)),c(length(g),length(g),processed$nsub)),c(1,2),sum)
-      output <- list(g=g,I=I,parnames=model_object$parnames,parclass=model_object$parclass,par=initial,fixedpar=fixedpar)
-      class(output) <-"nhm_score"
-      return(output)
+    if (!score_test) {
+      if (!constrained) {
+        fit <- maxLik(bhhh.nhm,start=initval,method="BHHH",print.level=print.level,finalHessian=hessmeth,control=maxLikcontrol,npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,tcrit=tmax,fishscore=FALSE,obslist=processed$obslist,state=statel,subject=subjectl,time=timel,indout=TRUE,init_state=init_state,cov2=cov2,sublist=processed$sublist,nsub=processed$nsub,rtol=rtol,atol=atol,intens=intens,gensolve=gensolve,emat_nhm=emat_nhm,ncores=ncores,firstobs=firstobs,initp=initp,initcovs=initcovs,finalcovs=finalcovs,initp_nhm=initp_nhm,nparQ=nparQ,fixedpar=fixedpar,fixval=fixval)
+      }else{
+        opt_config <- list()
+        opt_env <- environment()
+        fit <- stats::nlminb(start=initval,objective=nlminb_obj.nhm,gradient=nlminb_grad.nhm,hessian=nlminb_hess.nhm,scale=nlminb_scale,control=nlminb_control,lower=lower_lim, upper=upper_lim,npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,tcrit=tmax,fishscore=FALSE,obslist=processed$obslist,state=statel,subject=subjectl,time=timel,indout=FALSE,init_state=init_state,cov2=cov2,sublist=processed$sublist,nsub=processed$nsub,rtol=rtol,atol=atol,intens=intens,gensolve=gensolve,emat_nhm=emat_nhm,ncores=ncores,firstobs=firstobs,initp=initp,initcovs=initcovs,finalcovs=finalcovs,initp_nhm=initp_nhm,nparQ=nparQ,fixedpar=fixedpar,fixval=fixval,opt_env=opt_env)
+      }
     }
-    #if (!score_test) fit <- maxLik(bhhh_misc.nhm,start=initial,method="BHHH",print.level=2,npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,use.deriv=TRUE,tcrit=tmax,fishscore=FALSE,obslist=processed$obslist,state=statel,subject=subjectl,time=timel,indout=TRUE,init_state=init_state,cov2=cov2,sublist=processed$sublist,nsub=processed$nsub,rtol=rtol,atol=atol,intens=intens,gensolve=gensolve,emat_nhm=emat_nhm)
-    #if (score_test) return(bhhh_misc.nhm(initial,npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,use.deriv=TRUE,tcrit=tmax,fishscore=FALSE,obslist=processed$obslist,state=statel,subject=subjectl,time=timel,init_state=init_state,indout=TRUE,cov2=cov2,sublist=processed$sublist,nsub=processed$nsub,rtol=rtol,atol=atol,intens=intens,gensolve=gensolve,emat_nhm=emat_nhm))
-    fitmodel <- list(par=c(fit$estimate),value=-fit$maximum,grad=fit$gradient,hess=-fit$hessian)
+      if (score_test) {
+        out <- bhhh.nhm(initval,npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,tcrit=tmax,fishscore=FALSE,obslist=processed$obslist,state=statel,subject=subjectl,time=timel,init_state=init_state,indout=TRUE,cov2=cov2,sublist=processed$sublist,nsub=processed$nsub,rtol=rtol,atol=atol,intens=intens,gensolve=gensolve,emat_nhm=emat_nhm,ncores=ncores,firstobs=firstobs,initp=initp,initcovs=initcovs,finalcovs=finalcovs,initp_nhm=initp_nhm,nparQ=nparQ,fixedpar=fixedpar,fixval=fixval)
+        grad <- attr(out,"grad")
+        g <- apply(grad,2,sum)
+        I <- apply(array(apply(grad,1,function(x) outer(x,x)),c(length(g),length(g),processed$nsub)),c(1,2),sum)
+        output <- list(g=g,I=I,parnames=model_object$parnames,parclass=model_object$parclass,par=initial,fixedpar=fixedpar)
+        class(output) <-"nhm_score"
+        return(output)
+      }
+      #if (!score_test) fit <- maxLik(bhhh_misc.nhm,start=initial,method="BHHH",print.level=2,npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,use.deriv=TRUE,tcrit=tmax,fishscore=FALSE,obslist=processed$obslist,state=statel,subject=subjectl,time=timel,indout=TRUE,init_state=init_state,cov2=cov2,sublist=processed$sublist,nsub=processed$nsub,rtol=rtol,atol=atol,intens=intens,gensolve=gensolve,emat_nhm=emat_nhm)
+      #if (score_test) return(bhhh_misc.nhm(initial,npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,use.deriv=TRUE,tcrit=tmax,fishscore=FALSE,obslist=processed$obslist,state=statel,subject=subjectl,time=timel,init_state=init_state,indout=TRUE,cov2=cov2,sublist=processed$sublist,nsub=processed$nsub,rtol=rtol,atol=atol,intens=intens,gensolve=gensolve,emat_nhm=emat_nhm))
 
+      if (!constrained) {
+        fitmodel <- list(par=c(fit$estimate),value=-fit$maximum,grad=fit$gradient,hess=-fit$hessian)
+      }else{
+        #Need to do extra work to get the gradient and hessian...
+        #out <- bhhh.nhm(initval,npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,tcrit=tmax,fishscore=FALSE,obslist=processed$obslist,state=statel,subject=subjectl,time=timel,init_state=init_state,indout=TRUE,cov2=cov2,sublist=processed$sublist,nsub=processed$nsub,rtol=rtol,atol=atol,intens=intens,gensolve=gensolve,emat_nhm=emat_nhm,ncores=ncores,firstobs=firstobs,initp=initp,initcovs=initcovs,finalcovs=finalcovs,initp_nhm=initp_nhm,nparQ=nparQ,fixedpar=fixedpar,fixval=fixval)
+        #grad <- attr(out,"grad")
+        #g <- apply(grad,2,sum)
+        #I <- apply(array(apply(grad,1,function(x) outer(x,x)),c(length(g),length(g),processed$nsub)),c(1,2),sum)
+        if (hessian) {
+          #Check any parameters at boundary, if so add or substract 1e-5, as appropriate.
+          fd_par <- fit$par
+          if (any(fit$par < lower_lim +1e-5)) {
+            whp <- which(fit$par < lower_lim + 1e-5)
+            fd_par[whp] <- fd_par[whp]+1e-5
+          }
+          if (any(fit$par > upper_lim -1e-5)) {
+            whp <- which(fit$par > lower_lim - 1e-5)
+            fd_par[whp] <- fd_par[whp]-1e-5
+          }
+          print("Computing Hessian by finite-differences")
+          hess<- finitedifferences_misc.nhm(fd_par, npar=npar,ncov=ncov,nstate=nstate,ncovvals=processed$ncovvals,covs=processed$covs,covtable=processed$covtable,timesets=processed$timeset,fromtimeindex=processed$fromtimeindex,totimeindex=processed$totimeindex,fromtimesets=processed$fromtimesets,totimesets=processed$totimesets,fromsets=processed$fromsets,tosets=processed$tosets,death=death,death.states=death.states,censor=censor,censor.states=censor.states,tcrit=tmax,obslist=processed$obslist,state=statel,subject=subjectl,time=timel,indout=FALSE,init_state=init_state,cov2=cov2,sublist=processed$sublist,nsub=processed$nsub,rtol=rtol,atol=atol,intens=intens,gensolve=gensolve,emat_nhm=emat_nhm,ncores=ncores,firstobs=firstobs,initp=initp,initcovs=initcovs,finalcovs=finalcovs,initp_nhm=initp_nhm,nparQ=nparQ,fixedpar=fixedpar,fixval=fixval)
+        }else{
+          hess<-opt_config$hess
+        }
+        fitmodel <- list(par=fit$par, value=fit$objective,grad=opt_config$grad,hess=hess)
+      }
+
+    }
+    #Convert the fitted model into a proper standardized object?
+    #Need enough information to directly apply plot.prevalence.msm
+    if (!is.null(fitmodel$hess) | !is.null(fitmodel$fisher_info)) {
+      if (!is.null(fitmodel$hess)) pdcheck <- min(Re(eigen(fitmodel$hess,only.values=TRUE)$values))
+      if (is.null(fitmodel$hess)) pdcheck <- min(Re(eigen(fitmodel$fisher_info,only.values=TRUE)$values))
+      if (pdcheck < 1e-8) {
+        fitmodel$singular<-TRUE
+        warning("Hessian is singular or close to singular. Either optimization has not converged, one or more parameters is non-identifiable or the MLE is on the boundary of the parameter space.")
+      }else{
+        fitmodel$singular<-FALSE
+      }
+    }
+    fitmodel$model_object <- model_object  #May as well pass everything across
+    fitmodel$parnames <- model_object$parnames
+    fitmodel$npar <- npar
+    fitmodel$ncov <- ncov
+    fitmodel$nstate <- nstate
+    fitmodel$tcrit <- tmax
+    fitmodel$intens <- intens
+    fitmodel$splits <- splits
+    fitmodel$safe <- safe
+    fitmodel$maxtime <- max(time)
+    fitmodel$solvemethod <- solvemethod
+    fitmodel$fixedpar <- fixedpar
+    fitmodel$fixval <- fixval
+    fitmodel$gensolve <- gensolve
+    fitmodel$control <- control #Pass across the control object in case need to use logLik.nhm or similar.
+    #Also want the mean covariate values...
+    if (ncov>0) {
+      fitmodel$covmeans <- apply(covariates,2,mean)
+    }
+    class(fitmodel) <- "nhm"
+    return(fitmodel)
   }
-  #Convert the fitted model into a proper standardized object?
-  #Need enough information to directly apply plot.prevalence.msm
-  if (!is.null(fitmodel$hess)) {
-    pdcheck <- min(Re(eigen(fitmodel$hess,only.values=TRUE)$values))
-    if (pdcheck < 1e-8) {
-      fitmodel$singular<-TRUE
-      warning("Hessian is singular or close to singular. Either optimization has not converged or the MLE is on the boundary of the parameter space.")
+
+
+
+  nhm.control <- function(tmax=NULL, coarsen=FALSE, coarsen.vars=NULL, coarsen.lv=NULL, checks=FALSE,rtol=1e-6, atol=1e-6, fishscore=NULL, linesearch=FALSE, damped=FALSE, damppar=0,obsinfo=TRUE,splits=NULL,safe=FALSE,ncores=1,parallel_hess=TRUE,print.level=2,maxLikcontrol=NULL,nlminb_control=list(), constrained=FALSE, lower_lim=-Inf,upper_lim=Inf, nlminb_scale=1) {
+    if (!is.logical(coarsen)) stop("coarsen must be a logical")
+    if (coarsen) {
+      if (is.null(coarsen.vars)) stop("coarsen.vars must be specified")
+      if (is.null(coarsen.lv)) stop("coarsen.lv must be specified")
+      if (!is.numeric(coarsen.lv)) stop("coarsen.lv must be a numeric value")
+      if (length(coarsen.lv)>1) stop("coarsen.lv must be a single numeric value")
+      if (coarsen.lv <= 0) stop("coarsen.lv must be a positive integer")
+    }
+    if (!is.logical(checks)) stop("checks must be a logical")
+    if (!is.numeric(rtol)) stop("rtol must be a numeric value")
+    if (!is.numeric(atol)) stop("atol must be a numeric value")
+    if (!is.logical(linesearch)) stop("linesearch must be a logical")
+    if (!is.logical(damped)) stop("linesearch must be a logical")
+    if (!is.numeric(damppar)) stop("damppar must be a numeric value")
+    if (damppar < 0) stop("damppar must be non-negative")
+    if (!is.logical(obsinfo)) stop("obsinfo must be a logical")
+    if (!is.null(splits)) {
+      if (!is.numeric(splits)) stop("splits must be a numeric vector, if supplied")
+    }
+    if (!is.logical(safe)) stop("safe must be a logical")
+    if (!is.numeric(ncores)) stop("ncores must be numeric")
+    if (!is.logical(parallel_hess)) stop("parallel_hess must be a logical")
+    if (length(ncores)>1) stop("ncores must be a single value")
+    if (ncores <1) stop("ncores must be greater or equal to 1.")
+    if (!is.null(maxLikcontrol)) {
+      if (!is.list(maxLikcontrol)) stop("maxLikcontrol must be a list, if supplied")
+    }
+    if (!is.null(fishscore)) {
+      if (!is.logical(fishscore)) stop("fishscore must be a logical")
     }else{
-      fitmodel$singular<-FALSE
+      fishscore <- FALSE
     }
+    if (!is.numeric(print.level)) stop("print.level must be numeric")
+    if (!is.logical(constrained)) stop("constrained must be a logical")
+    if (!is.numeric(nlminb_scale)) stop("nlminb_scale must be numeric")
+    controll <- list(tmax=tmax, coarsen=coarsen, coarsen.vars=coarsen.vars, coarsen.lv=coarsen.lv, checks=checks,rtol=rtol, atol=atol, linesearch=linesearch, damped=damped, damppar=damppar,obsinfo=obsinfo,splits=splits,safe=safe,ncores=ncores,parallel_hess=parallel_hess, print.level=print.level,maxLikcontrol=maxLikcontrol,nlminb_control=nlminb_control, constrained=constrained, lower_lim=lower_lim, upper_lim=upper_lim, nlminb_scale = nlminb_scale, fishscore=fishscore)
+    class(controll) <- "nhm_control"
+    return(controll)
   }
-  fitmodel$model_object <- model_object  #May as well pass everything across
-  fitmodel$parnames <- model_object$parnames
-  fitmodel$npar <- npar
-  fitmodel$ncov <- ncov
-  fitmodel$nstate <- nstate
-  fitmodel$tcrit <- tmax
-  fitmodel$intens <- intens
-  fitmodel$splits <- splits
-  fitmodel$maxtime <- max(time)
-  fitmodel$solvemethod <- solvemethod
-  fitmodel$fixedpar <- fixedpar
-  fitmodel$fixval <- fixval
-  #Also want the mean covariate values...
-  if (ncov>0) {
-    fitmodel$covmeans <- apply(covariates,2,mean)
-  }
-  class(fitmodel) <- "nhm"
-  return(fitmodel)
-}
-
-nhm.control <- function(tmax=NULL, coarsen=FALSE, coarsen.vars=NULL, coarsen.lv=NULL, checks=FALSE,rtol=1e-6, atol=1e-6, fishscore=NULL, linesearch=FALSE, damped=FALSE, damppar=0,obsinfo=TRUE,splits=NULL,ncores=1,print.level=2,maxLikcontrol=NULL) {
-  if (!is.logical(coarsen)) stop("coarsen must be a logical")
-  if (coarsen) {
-    if (is.null(coarsen.vars)) stop("coarsen.vars must be specified")
-    if (is.null(coarsen.lv)) stop("coarsen.lv must be specified")
-    if (!is.numeric(coarsen.lv)) stop("coarsen.lv must be a numeric value")
-    if (length(coarsen.lv)>1) stop("coarsen.lv must be a single numeric value")
-    if (coarsen.lv <= 0) stop("coarsen.lv must be a positive integer")
-  }
-  if (!is.logical(checks)) stop("checks must be a logical")
-  if (!is.numeric(rtol)) stop("rtol must be a numeric value")
-  if (!is.numeric(atol)) stop("atol must be a numeric value")
-  if (!is.logical(linesearch)) stop("linesearch must be a logical")
-  if (!is.logical(damped)) stop("linesearch must be a logical")
-  if (!is.numeric(damppar)) stop("damppar must be a numeric value")
-  if (damppar < 0) stop("damppar must be non-negative")
-  if (!is.logical(obsinfo)) stop("obsinfo must be a logical")
-  if (!is.null(splits)) {
-    if (!is.numeric(splits)) stop("splits must be a numeric vector, if supplied")
-  }
-  if (!is.numeric(ncores)) stop("ncores must be numeric")
-  if (length(ncores)>1) stop("ncores must be a single value")
-  if (ncores <1) stop("ncores must be greater or equal to 1.")
-  if (!is.null(maxLikcontrol)) {
-    if (!is.list(maxLikcontrol)) stop("maxLikcontrol must be a list, if supplied")
-  }
-  if (!is.null(fishscore)) {
-    if (!is.logical(fishscore)) stop("fishscore must be a logical")
-  }else{
-    fishscore <- FALSE
-  }
-  if (!is.numeric(print.level)) stop("print.level must be numeric")
-  controll <- list(tmax=tmax, coarsen=coarsen, coarsen.vars=coarsen.vars, coarsen.lv=coarsen.lv, checks=checks,rtol=rtol, atol=atol, linesearch=linesearch, damped=damped, damppar=damppar,obsinfo=obsinfo,splits=splits,ncores=ncores,print.level=print.level,maxLikcontrol=maxLikcontrol,fishscore=fishscore)
-  class(controll) <- "nhm_control"
-  return(controll)
-}

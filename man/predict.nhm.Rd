@@ -2,7 +2,7 @@
 \alias{predict.nhm}
 %- Also NEED an '\alias' for EACH other topic documented here.
 \title{
-Compute state occupation or transition probabilities from a fitted nhm model
+Compute transition probabilities from a fitted nhm model
 }
 \description{
 Outputs the transition probabilites from a non-homogeneous Markov or misclassification type hidden Markov multi-state model fitted using \code{\link{nhm}}.
@@ -10,7 +10,7 @@ Outputs the transition probabilites from a non-homogeneous Markov or misclassifi
 \usage{
 \method{predict}{nhm}(object, time0=0, state0=1, times=NULL, covvalue=NULL,
 ci=TRUE, sim=FALSE, coverage=0.95, B=1000, rtol=1e-6,
-atol=1e-6, ...)
+atol=1e-6, statemerge=FALSE,...)
 }
 %- maybe also 'usage' for other objects documented here.
 \arguments{
@@ -46,6 +46,10 @@ atol=1e-6, ...)
 }
   \item{atol}{
  Absolute tolerance parameter to be used by \code{lsoda} when solving the differential equations}
+ \item{statemerge}{
+ Logical of whether the estimates should merge together latent states. Only relevant for models fitted using \code{phasemap} option. By default (\code{FALSE}) 
+the probabilities for the latent states will be given. 
+ }
  \item{...}{
  Other items to be passed to the function. Currently not used.
 }
@@ -53,7 +57,8 @@ atol=1e-6, ...)
 \details{
 The same approach as in the main \code{nhm} function of numerically solving the system of differential equations is used to compute transition probabilities based on the maximum likelihood estimates found in \code{nhm} and assuming a specific vector of covariates.
 
-If the simulation delta method approach is specified then the function will generate \code{B} parameter vectors from the asymptotic distribution of the MLE and solve the system of equations for each of them, before finding pointwise percentile bootstrap confidence intervals from them.}
+If the simulation delta method approach is specified then the function will generate \code{B} parameter vectors from the asymptotic distribution of the MLE and solve the system of equations for each of them, before finding pointwise percentile bootstrap confidence intervals from them.
+}
 \value{
 Returns a list containing the vector of times at which the probabilities are computed, a matrix of probabilities for each state at each of the times. If confidence intervals are requested then the lower and upper limits are also provided.
 

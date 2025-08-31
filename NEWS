@@ -1,3 +1,14 @@
+Changes in version 0.1.2 (2025-08-31)
+
+* Constrained optimization now possible via nlminb.
+* Censoring of non-final observations possible for misclassification models.
+* Left truncation possible for misclassification models.
+* Introduced informative observation testing via inform option.
+* The control argument can now be a named list rather than a nhm.control object.
+* Phase-type semi-Markov models can be accommodated for "bespoke" type models using the phasemap option.
+* Parallel computing also now used for performing the forward algorithm for misclassification models and to calculate the Hessian using finite differences .
+* Links to functions in other packages fixed within help documentation.
+
 Changes in version 0.1.1 (2023-11-02)
 
 * Fixed bug in model.nhm that occurred if a bespoke model was specified without including the number of parameters as an attribute in the intens function.

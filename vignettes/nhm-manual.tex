@@ -60,27 +60,40 @@
 \nc{\blue}{\color{blue}}
 \nc{\red}{\color{red}}
 
-\title{Non-homogeneous Markov and misclassification hidden Markov multi-state modelling in R}
-\author{Andrew C. Titman\\Department of Mathematics and Statistics\\Lancaster University, U.K.\\ \texttt{a.titman@lancaster.ac.uk}}
-\date{}
-%% label with date when Rnw is compiled, not when tex is compiled. should be release date of package
-
-\bibliographystyle{unsrt}
-
 \begin{document}
+
+\title{Non-homogeneous Markov and misclassification hidden Markov multi-state modelling in R}
+
+\author{Andrew C. Titman}
+
+\affil{\small School of Mathematical Sciences, Lancaster University, UK}
 
 \maketitle
 
-\abstract{Multi-state models are a useful approach for modelling event history data in which an individual makes transitions between a series of states over time. A Markov assumption is often made in such models and for intermittently observed data the models are usually parametric. The {\it nhm} package allows non-homogeneous Markov models with smoothly changing transition intensities to be fitted to intermittently observed data through direct numerical solution of the differential equations defining the transition probabilities. Misclassification type hidden Markov models with non-homogeneous transition intensities can also be fitted. The package permits models with log-linear time trends (Gompertz type intensities) to be fitted, Weibull intensities or B-spline intensity functions to be specified directly. In addition, users may also supply their own function for the generator function of transition intensities and its derivatives to allow bespoke models to be fitted. This manual provides a brief overview of the underlying theory behind non-homogeneous Markov and misclassification hidden Markov models and also gives a tutorial on the typical use of {\it nhm}.
+\abstract{Multi-state models are a useful approach for modelling event history data in which an individual makes transitions between a series of states over time. A Markov assumption is often made in such models and for intermittently observed data the models are usually parametric. 
+
+The {\it nhm} package allows non-homogeneous Markov models with smoothly changing transition intensities to be fitted to intermittently observed data through direct numerical solution of the differential equations defining the transition probabilities. Misclassification type hidden Markov models with non-homogeneous transition intensities can also be fitted. The package permits models with log-linear time trends (Gompertz type intensities) to be fitted, Weibull intensities or B-spline intensity functions to be specified directly. In addition, users may also supply their own function for the generator function of transition intensities and its derivatives to allow bespoke models to be fitted.
+
+This manual provides a brief overview of the underlying theory behind non-homogeneous Markov and misclassification hidden Markov models and also gives a tutorial on the typical use of {\it nhm}.
 }
 
 \section{Introduction}
 
-The likelihood for Markov models on intermittently observed data requires computation of the transition probabilities, which are the solution of the Kolmogorov Forward Equations (KFE) a system of ordinary differential equations defined by the transition intensities \cite{coxmiller}. For time homogeneous models where the intensities are constant, the KFE define a linear system of equations and hence the transition probabilities can be calculated by computing a matrix exponential. Moreover, the transition probabilities for models with piecewise constant intensities can also be found in matrix analytic form by computing matrix exponentials with respect to each time period in which the intensities are constant and combining them using the Chapman-Kolmogorov equations. Models using these matrix analytic formulations can be fitted efficiently using the {\it msm} package \cite{jackson}. However, the assumption of time homogeneity is often not plausible and models with piecewise constant intensities are potentially sensitive to the choice of cut points.
+%Some general bunff on multi-state Markov models
+
+The likelihood for Markov models on intermittently observed data requires computation of the transition probabilities, which are the solution of the Kolmogorov Forward Equations (KFE) a system of ordinary differential equations defined by the transition intensities \cite{coxmiller}. For time homogeneous models where the intensities are constant, the KFE define a linear system of equations and hence the transition probabilities can be calculated by computing a matrix exponential. Moreover, the transition probabilities for models with piecewise constant intensities can also be found in matrix analytic form by computing matrix exponentials with respect to each time period in which the intensities are constant and combining them using the Chapman-Kolmogorov equations. Models using these matrix analytic formulations can be fitted efficiently using the {\it msm} package \cite{jackson}. 
+
+However, the assumption of time homogeneity is often not plausible and models with piecewise constant intensities are potentially sensitive to the choice of cut points.  
+
+%Link to msm etc.
+%Something about time transformation
+
 
 \section{Underlying methods}
 
-The underlying methods implemented by the package overlap heavily with those of the {\it msm} package \cite{jackson} and the reader is encouraged to consult the {\it msm} package manual and references therein for a basic introduction to intermittently observed time homogeneous multi-state models. See in particular, Kalbfleisch and Lawless (1985) \cite{kalbfleisch} and Jackson {\it et al} (2003) \cite{jackson2003} for the seminal papers for Markov and misclassification-type Markov models, respectively. The key extension that {\it nhm} accommodates is the ability to fit models where the transition intensities may be smooth functions of time.
+The underlying methods implemented by the package overlap heavily with those of the {\it msm} package \cite{jackson} and the reader is encouraged to consult the {\it msm} package manual and references therein for a basic introduction to intermittently observed time homogeneous multi-state models. See in particular, Kalbfleisch and Lawless (1985) \cite{kalbfleisch} and Jackson {\it et al} (2003) \cite{jackson2003} for the seminal papers for Markov and misclassification-type Markov models, respectively.
+
+The key extension that {\it nhm} aims to accommodate is the fitting of models where the transition intensities may be smooth functions of time.
 
 The likelihood for an individual observed in states $x_0, x_1, \ldots, x_m$ at times $t_0, t_1, \ldots, t_m$ can be expressed as
 
@@ -88,39 +101,45 @@ $$L(\bm\theta) = \prod_{j=1}^{m} \mathbb{P}(X(t_j) = x_j | X(t_{j-1}) = x_{j-1} 
 Let $\mathbf{P}(t_0, t ; \bm\theta)$ be the matrix of transition probabilities such that $\{\mathbf{P}(t_0, t)\}_{rs} = p_{rs}(t_0,t ; \bm\theta)$ then for a general non-homogeneous Markov model, these transition probabilities satisfy the initial value problem
 
 $$\frac{d\mathbf{P}(t_0, t ; \bm\theta)}{dt} = \mathbf{P}(t_0, t ; \bm\theta)\mathbf{Q}(t ; \bm\theta), ~~ \mathbf{P}(t_0, t_0 ;\bm\theta) = \mathbf{I}$$
-where $\mathbf{Q}(t ; \bm\theta)$ is the generator matrix of transition intensities. Following the approach proposed in Titman (2011), {\it nhm} uses direct numerical solution of this system of differential equations to compute the likelihood. For additional efficiency in optimization, Titman (2011) proposed to solve the extended system of differential equations, incorporating the systems of equations defining the derivatives with respect to the parameter vector $\bm\theta$:
+where $\mathbf{Q}(t ; \bm\theta)$ is the generator matrix of transition intensities. Following the approach proposed in Titman (2011), {\it nhm} uses direct numerical solution of this system of differential equations to compute the likelihood. For additional efficiency in optmization, Titman (2011) proposed to solve the extended system of differential equations, incorporating the systems of equations defining the derivatives with respect to the parameter vector $\bm\theta$:
 $$\frac{d\mathbf{P}'(t_0, t ; \bm\theta)}{dt} = \mathbf{P}'(t_0, t ; \bm\theta)\mathbf{Q}(t ; \bm\theta) + \mathbf{P}(t_0, t ; \bm\theta)\mathbf{Q}'(t ; \bm\theta), ~~ \mathbf{P}'(t_0, t_0 ;\bm\theta) = \mathbf{0}$$
 where $$\mathbf{P}'(t_0, t_0 ;\bm\theta) = \frac{\partial \mathbf{P}(t_0, t ; \bm\theta)}{\partial \bm\theta} ~~ \mbox{and} ~~ \mathbf{Q}'(t ; \bm\theta) = \frac{\partial \mathbf{Q}(t ; \bm\theta)}{\partial \bm\theta},$$
-so that the first derivatives of the likelihood can be calculated. The differential equations are solved by using the LSODA routine \cite{lsoda} of the deSolve package \cite{deSolve}, which automatically selects appropriate methods to allow for {\it stiff} differential equations, if necessary.
+so that the first derivatives of the likelihood can be calculated.
+
+The differential equations are solved by using the LSODA routine \cite{lsoda} of the deSolve package \cite{deSolve}, which automatically selects appropriate methods to allow for {\it stiff} differential equations, if necessary.
 
 \subsection{Misclassification type hidden Markov models}
 
-For misclassification type hidden Markov models, forward recursion is used to compute the likelihood contribution for an individual. Let $e_{rs} = P(O_j = s | X_j = r)$ be the $(r,s)$ entry of the misclassification matrix. Then for a subject with observed states $O_1,\ldots,O_m$ at times $t_1,\ldots,t_m$, forward weights are defined as $\alpha_{k}(j)$ for observation number $k=1,\ldots,m$ and state $j=1,\ldots,R$, where
+For misclassification type hidden Markov models, forward recursion is used to compute the likelihood contribution for an individual. 
+
+Let $e_{rs} = P(O_j = s | X_j = r)$ be the $(r,s)$ entry of the misclassification matrix. Then for a subject with observed states $O_1,\ldots,O_m$ at times $t_1,\ldots,t_m$, forward weights are defined as $\alpha_{k}(j)$ for observation number $k=1,\ldots,m$ and state $j=1,\ldots,R$, where
 \begin{displaymath}\alpha_{1}(j) = \prob(O_{1}, X_{1}=j) = \pi_{0j}e_{j,O_{1}},\end{displaymath}
 where $\pi_{0j}$ is the $j$th entry of $\mathbf{\pi_{0}}$, and subsequent forward weights are calculated recursively:
 \begin{displaymath}\alpha_{k}(j) = \prob(O_{1},\ldots,O_{k}, X_{k}=j) = \sum_{i=1}^{R} \alpha_{k-1}(i)e_{j,O_{k}}p_{ij}(t_{k-1},t_{k} ; \bm\theta).\end{displaymath}
 Then the likelihood for that subject is given by
 \begin{displaymath}\prob(O_{1},\ldots,O_{m}) = \sum_{i=1}^{R} \alpha_{m}(i).\end{displaymath}
 
-To compute the first derivatives, an extended forward recursion is used as proposed by Lystig and Hughes (2002) \cite{lystig} in the context of discrete time hidden Markov models. If we further define
+To compute the first derivatives, an extended forward recursion is used as proposed by Lystig and Hughes (2002) \cite{lystig} in the context of discrete time hidden Markov models. 
+
+If we further define
 \begin{displaymath}\phi_{k}(\theta_{u},j) = \frac{\partial \alpha_{k}(j)}{\partial \theta_{u}} = \frac{\partial}{\partial \theta_{u}} \prob(O_1,\ldots,O_k,X_k = j)\end{displaymath}
 then this allows $\phi_{k}(\theta_{u},j)$ to be calculated recursively as
 \begin{equation}
 \begin{split}
 \phi_{k}(\theta_{u},j) = \sum_{i=1}^{R} \left( \phi_{k-1}(\theta_{u},i)e_{jO_{k}}p_{ij}(t_{k-1},t_{k} ; \bm\theta) + \phantom{\frac{~}{~}} ~~~~~~~~ \right. \\ \left. ~~~~~~~~~~~~~ \alpha_{k-1}(i)\frac{\partial e_{j,O_{k}}}{\partial \theta_{u}} + \alpha_{k-1}(i)e_{j,O_{k}}\frac{\partial p_{ij}(t_{k-1},t_{k};\bm\theta)}{\partial \theta_{u}} \right).
 \end{split}\end{equation}
-The first derivative of the likelihood for the subject is then given as
+Then the first derivative of the likelihood for the subject is given as
 \begin{displaymath}\frac{\partial \prob(O_1,\ldots,O_{m})}{\partial \theta_u} = \sum_{i=1}^{R} \phi_{m}(\theta_u,i).\end{displaymath}
 
 
 \section{Model specification: {\it model.nhm}}
 \label{model_spec}
 
-The purpose of the function \verb!model.nhm! is to define model objects which may then be used in the main function, \verb!nhm!. \verb!model.nhm! puts the supplied data into a standardized format, builds functions for computing the generator or intensity matrix and its derivatives and, in the case of misclassification models, also creates functions for computing the misclassification probabilities and initial state occupation probabilities.
+The purpose of the function \verb!model.nhm! is to define model objects which may then be used in the main function, \verb!nhm!. \verb!model.nhm! puts the supplied data into a standardized format, builds functions for computing the generator or intensity matrix and its derivatives and, in the case of misclassification models, also creates functions for computing the misclassification probabilities and initial state occupation probabilities. 
 
 \subsection{Identification of key variables}
 
-The \verb!formula! argument follows the same syntax as used in the {\bf msm} package. A formula should be provided where the left hand side identifies the state variable and the right hand side identifies the time variable. For example \verb!formula = state ~ years! implies that the observed states are stored in a column named \verb!state! while the corresponding observation times are in a column \verb!years!.
+The \verb!formula! argument follows the same syntax as used in the {\bf msm} package. A formula should be provided where the left hand side identifies the state variable and the right hand side identifies the time variable. For example \verb!formula = state ~ years! implies that the observed states are stored in a column named \verb!state! while the corresponding observation times are in a column \verb!years!. 
 
 The \verb!data! argument identifies the name of the data frame in which the data are stored. Note that this cannot be omitted. The \verb!subject! argument identifies the name of the subject identifier variable within the data frame. The \verb!covariates! argument should be a character vector giving the names of the covariates that are used in the model. These variables should be columns within the \verb!data! data frame. Note that these covariates could be used in either the model for the transition intensities or, in the case of misclassification models, for covariate effects on the misclassification probabilities or initial state probabilities.
 
@@ -141,7 +160,7 @@ where $\beta_{rs}$ defines a log-linear trend in intensity with respect to time,
 A \verb!'weibull'! type model leads to models where some or all of the intensities are of the form
 
 $$q_{rs}(t ; \mathbf{z}) = \lambda_{rs} \alpha_{rs} (\lambda_{rs} t)^{\alpha_{rs} - 1} \exp(\bm\gamma_{rs}^{'}\mathbf{z})$$
-where $\alpha_{rs} >0$ is the shape parameter, $\lambda_{rs} > 0$ the rate parameter. A time homogeneous model arises with $\alpha_{rs} = 1$.
+where $\alpha_{rs} >0$ is the shape parameter, $\lambda_{rs} > 0$ the rate parameter. A time homogeneous model arises with $\alpha_{rs} = 1$. 
 In {\it nhm}, in order to allow the likelihood to be maximized via unconstrained optimization, the model is parametrized in terms of the log-shape, $a_{rs}$, and log-rate, $\theta_{rs}$,
 
 $$q_{rs}(t ; \mathbf{z}) = \exp\left\{ \theta_{rs} \exp(a_{rs}) + (\exp(a_{rs}) - 1)\log t  +\bm\gamma_{rs}^{'}\mathbf{z}\right\}.$$
@@ -150,23 +169,22 @@ $$q_{rs}(t ; \mathbf{z}) = \exp\left\{ \theta_{rs} \exp(a_{rs}) + (\exp(a_{rs}) 
 
 A \verb!'bspline'! type model leads to models where some or all of the intensities are of the form
 
-\begin{equation}q_{rs}(t ; \mathbf{z}) = \exp\left\{ \theta_{rs} + \bm\nu_{rs}^{'}\mathbf{B}(t) +\bm\gamma_{rs}^{'}\mathbf{z}\right\}\label{splinemodel}\end{equation}
+$$q_{rs}(t ; \mathbf{z}) = \exp\left\{ \theta_{rs} + \bm\nu_{rs}^{'}\mathbf{B}(t) +\bm\gamma_{rs}^{'}\mathbf{z}\right\}$$
 
 where $\mathbf{B}(t)$ is the vector of B-spline basis functions at time $t$ for a B-spline of a certain order with certain knot points, implying the overall effect of time is represented by a spline function that is a smooth piecewise polynomial. Note that this specification differs slightly from that used in Titman (2011).
 
-The knot points for the spline are specified using the argument \verb!splinelist!. This should be a list of length equal to the number of distinct spline effects in the model, of vectors which specify the location of the knots of the spline (including the boundary knots). By default the splines are of degree 3, but this can be modified by using the \verb!degrees! argument.
-
-Note that for identifiability or estimability, it is often sensible to set the upper boundary knot to be below the maximum follow-up time in the dataset. In this case the model fitted replaces $\mathbf{B}(t)$  with $\mathbf{B}(t \wedge t_u)$ in
-(\ref{splinemodel}), where $t_u$ is the upper boundary knot. Effectively this means the intensity is assumed constant after the upper boundary knot. A worked example of a B-spline model is given in Section \ref{sec:bspline_example}.
+The knot points for the spline are specified using the argument \verb!splinelist!. This should be a list of length equal to the number of distinct spline effects in the model, of vectors which specify the location of the knots of the spline (including the boundary knots). By default the splines are of degree 3, but this can be modified by using the \verb!degrees! argument. 
 
 \subsubsection*{Bespoke type}
 
 If a non-homogeneous model not built into the package is desired, the \verb!'bespoke'! type can be specified. To fit a bespoke model, it is necessary to also provide a function that computes the generator (transition intensity) matrix and its derivatives at a given time \verb!t!, covariate vector \verb!z! and vector of model parameters \verb!x!. It should output a list containing a matrix \verb!q! and an array \verb!qp!. The matrix \verb!q! should be the $R \times R$ matrix $\mathbf{Q}(t; z, \bm\theta)$ whose $(r,s)$ entry is $q_{rs}(t; z, \bm\theta)$ for $r \neq s$ and $-\sum_{k} q_{rk}(t;z,\bm\theta)$ for $r = s$. The array \verb!qp! should be the $R \times R \times n_p$ array of first derivatives
 ${d\mathbf{Q}(t ; z, \bm\theta)}/{d\bm\theta}$, where $n_p$ is the number of parameters in the model for the generator matrix.
 
-Although not required, it is desirable to provide an attribute to the function named \verb!npar! that stores $n_p$. In addition, parameter names (for use in \verb!print!) can be supplied in an attribute \verb!parnames!. The attribute should be a character string of length $n_p$. The created function should be supplied as the argument \verb!intens!.
+Although not required, it is desirable to provide an attribute to the function named \verb!npar! that stores $n_p$. In addition, parameter names (for use in \verb!print!) can be supplied in an attribute \verb!parnames!. The attribute should be a character string of length $n_p$. The created function should be supplied as the argument \verb!intens!. 
 
-Note that for large models or datasets, or if the same model will be fitted many times, it is general advantageous to hard-code an \verb!intens! function even if the model is one of the pre-specified types. The speed gain varies, but may be biggest for models with a large(r) number of covariates that only affect a small number of transitions. Worked examples of the use of \verb!bespoke! type models are given in Section \ref{sec:bespoke}.
+Note that for large models or datasets or if the same model will be fitted many times, it is general advantageous to hard code an \verb!intens! function even if the model is one of the pre-specified types. The speed gain varies, but may be biggest for models with a large(r) number of covariates that only affect a small number of transitions.
+
+%Provide an example
 
 
 \subsection{{\it trans} argument}
@@ -183,17 +201,17 @@ The \verb!nonh! argument specifies which transition intensities are non-homogene
 
 \subsection{{\it covm} argument}
 
-The \verb!covm! argument is used to specify which transitions are affected by which covariates. The argument can either be supplied as a named list of $R \times R$ matrices or else an $R \times R \times n_c$ array, where $n_c$ is the length of the \verb!covariates! argument.
+The \verb!covm! argument is used to specify which transitions are affected by which covariates. The argument can either be supplied as a named list of $R \times R$ matrices or else an $R \times R \times n_c$ array, where $n_c$ is the length of the \verb!covariates! argument. 
 
 If a named list is supplied, the names must be present in the \verb!covariates! vector. If an array is supplied, the $(r,s, k)$ entry will relate to the effect of the $k$th covariate named in the \verb!covariates! vector on the $r \rightarrow s$ transition. The same principle used in \verb!trans! and \verb!nonh! is used for \verb!covm!. A zero entry implies no effect, otherwise effects should be numbered consecutively from 1. Assigning the same number to any two entries implies a common covariate effect. {\bf NB:} The numbering applies across the whole argument.
 
 \subsubsection{Time dependent covariates}
 
-Time dependent covariates may be included in the model. Time dependent covariates are assumed to be constant between observed visit times. The same data convention as the {\it msm} package is used, namely that  the transition intensities for the period $(t_i, t_{i+1})$, will be governed by the covariates measured at $t_i$. As a consequence the covariates supplied for the last follow-up time will only be used in the case of exact death times, or else only for covariate effects on the misclassification probabilities at the last observation time. Note that a particular advantage of {\it nhm} is that deterministic time dependent covariates can be incorporated into the model without using a piecewise constant approximation. For instance, if current age is to be a covariate such that
-$$\lambda_{rs}(t ; \mbox{age}(t)) = \exp\{\theta_{rs} + \beta_{rs} \mbox{age}(t)\}$$
+Time dependent covariates may be included in the model. Time dependent covariates are assumed to be constant between observed visit times. The same data convention as the {\it msm} package is used, namely that  the transition intensities for the period $(t_i, t_{i+1})$, will be governed by the covariates measured at $t_i$. As a consequence the covariates supplied for the last follow-up time will only be used in the case of exact death times (or for covariates on misclassification probabilities). Note that a particular advantage of {\it nhm} is that deterministic time dependent covariates can be incorporated into the model without using a piecewise constant approximation. For instance, if current age is to be a covariate such that
+$$\lambda_{rs}(t ; \mbox{age}(t)) = \exp(\theta_{rs} + \beta_{rs} \mbox{age}(t))$$
 then this can be fitted via a ``Gompertz" model
-$$\lambda_{rs}(t ; \mbox{age}(t)) = \exp\{\theta_{rs} + \beta_{rs} (\mbox{age}_0 + t)\}$$
-where $\mbox{age}_0$ is the patient's age at time 0.
+$$\lambda_{rs}(t ; \mbox{age}(t)) = \exp(\theta_{rs} + \beta_{rs} (\mbox{age}_0 + t))$$
+where $\mbox{age}_0$ is the patient's age at time 0. 
 Note that the \verb!centre_time! argument can be a vector, so supplying the vector of $-\mbox{age}_0$ will allow this model to be fitted. More complicated time dependent covariates can be accommodated using a \verb!bespoke! type intensity function.
 
 \subsection{Example: Gompertz model with covariate effects}
@@ -220,31 +238,32 @@ and that each of the covariates affects the $1 \rightarrow 2$ only
 
 \begin{verbatim}
 covm <- list(
-   cov1 = rbind(c(0,1,0,0),rep(0,4),rep(0,4),rep(0,4)),
-   cov2 = rbind(c(0,2,0,0),rep(0,4),rep(0,4),rep(0,4)))
+cov1 = rbind(c(0,1,0,0),rep(0,4),rep(0,4),rep(0,4)),
+cov2 = rbind(c(0,2,0,0),rep(0,4),rep(0,4),rep(0,4)))
 \end{verbatim}
 
 The call to \verb!model.nhm! is then
 
 \begin{verbatim}
-gomp_model <- model.nhm(state~time, data=example_data1, subject = id, covariates
-=c("cov1","cov2"),type="gompertz",trans=trans,nonh=nonh,covm=covm)
+gomp_model <- model.nhm(state~time, data=example_data1, subject = id, covariates=c("cov1",
+"cov2"),type="gompertz",trans=trans,nonh=nonh,covm=covm)
 \end{verbatim}
 
 \subsection{Arguments for misclassification models}
+\label{miscarg_sec}
 
-The arguments \verb!emat!, \verb!ecovm!, \verb!firstobs!, \verb!initp!, \verb!initp_value! and \verb!initcovm! are specific to misclassification type hidden Markov models and are explained in the following section.
+The arguments \verb!emat!, \verb!ecovm!, \verb!firstobs!, \verb!initp!, \verb!initp_value! and \verb!initcovm! are specific to misclassification type hidden Markov models.
 
 \subsubsection{Misclassification probabilities}
 
 The general model for the misclassification probabilities is of the form
 
 $$P(O_j = s | X_j = r, \mathbf{z}, \bm\theta) = \frac{\exp( u_{rs})}{\sum_{k} \exp(u_{rk})}$$
-where $u_{rr} \equiv 1$ and $u_{rs} = \eta_{rs} + \bm\tau_{rs}^{'}\mathbf{z}.$
-Hence a multinomial logistic regression model is used for each state, with correct classification ($O_j = X_j$) taken as the baseline category.
+where $u_{rr} \equiv 0$ and $u_{rs} = \eta_{rs} + \bm\tau_{rs}^{'}\mathbf{z}.$
+Hence a multinomial logistic regression model is used for each state, with correct classification taken as the baseline.
 
-The \verb!emat! argument follows the same principles as \verb!trans! in that it should be an $R \times R$ matrix numbered consecutively from 1. Inadmissible misclassification is labelled 0, while assigning the same number to two transitions implies that $\eta_{rs} = \eta_{r's'}$. Diagonal elements will be ignored.
-Similarly, \verb!ecovm! follows the same principles as \verb!covm! in defining the covariate effects $\bm\tau$.
+The \verb!emat! argument follows the same principles as \verb!trans! in that it should be an $R \times R$ matrix numbered consecutively from 1. Inadmissible misclassification is labelled 0, while assigning the same number to two transitions implies that $\eta_{rs} = \eta_{r's'}$.
+\verb!ecovm! follows the same principles as \verb!covm! in defining the covariate effects $\bm\tau$.
 
 \subsubsection{Initial state probabilities}
 \label{initprobs}
@@ -261,84 +280,10 @@ Specifying \verb!firstobs="misc"! implies that the state observed at the first o
 
 \subsubsection*{Model for initial probabilities}
 
-If \verb!firstobs! is taken to be either \verb!'absent'! or \verb!'misc'! then a model for the state occupation probabilities at the first observation time is needed. By default, if no other arguments are specified it is  assumed that the subject  is in state 1 with probability 1.
+If \verb!firstobs! is taken to be either \verb!'absent'! or \verb!'misc'! then a model for the state occupation probabilities at the first observation time is needed. By default, if no other arguments are specified it is  assumed that the subject  is in state 1 with probability 1. 
 
 One can either specify a fixed vector of initial probabilities using the \verb!initial_value! argument or the initial probabilities can be allowed to follow a multinomial logistic regression model with state 1 taken as the baseline category and the parameters assumed unknown and to be estimated. In the former case \verb!initial_value! should be a numerical vector of length $R$ of non-negative values which sum to 1, corresponding to $P(X(t_0)= r), r=1, \ldots, R$. In the latter case the argument \verb!initp! should be a vector of length $R$ which identifies which states other than 1 have a non-zero probability of being occupied at the initial time. As above, the states should be numbered consecutively from 1. If the same number is assigned twice or more it implies the same baseline parameter is used. The first entry of the vector is ignored, but expected to be 0. In addition \verb!initpcovm! can be supplied to allow covariate effects on the initial probabilities. This should either be a named list of vectors of length $R$ or an $R \times n_c$ matrix.
 
-\subsection{Example: Weibull model with misclassification}
-\label{sec:weib_model1}
-
-A second example dataset is analysed, where the observed data includes backwards transitions. We again consider a four state progressive model, each with distinct time effects
-\begin{verbatim}
-trans <- rbind(c(0,1,0,0),c(0,0,2,0),c(0,0,0,3),rep(0,4))
-nonh <- rbind(c(0,1,0,0),c(0,0,2,0),c(0,0,0,3),rep(0,4))
-\end{verbatim}
-To account for the backward transitions seen in the data, state misclassification is assumed between adjacent states. This is represented in the call to \verb!model.nhm! by setting
-
-\begin{verbatim}
-emat <- rbind(c(0,1,0,0),c(2,0,3,0),c(0,4,0,0),c(0,0,0,0))
-\end{verbatim}
-which allows each misclassification probability to have a separate parameter. Note that if any two were assigned the same number it would be the logit scale parameters that would be shared.
-
-For this example, we consider Weibull hazard functions for the transition intensities, meaning the call to \verb!model.nhm! is:
-
-\begin{verbatim}
-weib_model <- model.nhm(state~time, data=example_data2, subject = id,
-type="weibull",trans=trans,nonh=nonh,emat=emat)
-\end{verbatim}
-
-%To fit the model, it is necessary to specify some initial values. As above, the best approach is likely to be to fit the equivalent time homogeneous model in {\bf msm}. However, here a specific guess is used:
-%\begin{verbatim}
-%init <- c(-2,-2.5,-3,0,0,0,-3,-3,-3,-3)
-%weib_fit <- nhm(weib_model,initial=init)
-%weib_fit
-%\end{verbatim}
-%\begin{verbout}
-%                Est Low 95%  Up 95%
-%Rate: 1->2  -0.6537 -0.7848 -0.5225
-%Rate: 2->3  -0.4301 -0.7321 -0.1282
-%Rate: 3->4  -0.6927 -0.9722 -0.4132
-%Shape: 1->2  0.0327 -0.0747  0.1402
-%Shape: 2->3  0.0224 -0.1307  0.1755
-%Shape: 3->4  0.0364 -0.1163  0.1890
-%Emat: 1->2  -2.4113 -3.1039 -1.7187
-%Emat: 2->1  -2.5501 -3.3516 -1.7487
-%Emat: 2->3  -3.3363 -4.4615 -2.2112
-%Emat: 3->2  -2.3027 -2.7560 -1.8493
-%
-%Deviance: 6261.45
-%\end{verbout}
-%While each of the shape parameters indicates an increasing hazard, each of the respective 95\% confidence intervals contain 0, suggesting the non-homogeneity may not be necessary. However, since the estimated shape parameters are similar, we could consider fixing them to be equal:
-%\begin{verbatim}
-%nonh_a <- rbind(c(0,1,0,0),c(0,0,1,0),c(0,0,0,1),rep(0,4))
-%weib_model_a <- model.nhm(state~time, data=example_data2, subject = id,
-%type="weibull",trans=trans,nonh=nonh_a,emat=emat)
-%weib_fit_a <- nhm(weib_model_a, initial = c(-0.65,-0.43,-0.69,0.03,-2.4,2.6,
-%-3.3,-2.3))
-%\end{verbatim}
-%Nevertheless, the common shape parameter remains non-significant.
-
-In the above analysis, the default assumption for \verb!firstobs! was used, meaning the first observation was taken to be observed without misclassification. Alternatively, it could be assumed that the status at time 0 is not known and instead the process could be in one of several starting states. Here a model is considered where each patient may be in either states 1, 2 or 3 with some probability at time 0:
-
-\begin{verbatim}
-initp <- c(0,1,2,0)
-weib_model2 <- model.nhm(state~time, data=example_data2, subject = id,
-type="weibull",trans=trans,nonh=nonh,emat=emat,firstobs="absent",initp=initp)
-\end{verbatim}
-%This introduces two additional parameters into the model, which we set to have small values initially:
-%\begin{verbatim}
-%init2 <- c(weib_fit$par,-3,-5)
-%weib_fit2 <- nhm(weib_model2,initial=init2)
-%\end{verbatim}
-%A warning message is returned on termination of the optimization algorithm:
-%\begin{verbout}
-%Warning message:
-%In nhm(weib_model2, initial = init2) :
-%  Hessian is singular or close to singular. Either optimization has not converged
-%  or the MLE is on the boundary of the parameter space.
-%\end{verbout}
-%Inspection of the parameter estimates indicates that the problem is that the estimated values of the initial probability parameters are highly negative and hence the MLE is indeed on the boundary of the parameter space implying there is no gain whatsoever in allowing the possibility that patients started in states beyond state 1.
-%
 \subsection{Further arguments}
 
 \subsubsection{`Exact' death times}
@@ -347,10 +292,12 @@ When a multi-state model describes life history data and absorbing states corres
 
 \subsubsection{Censoring}
 
-For life history data, the end of follow-up for death may not correspond to the last observation time. For instance, the last observation of a patient may be at 5 years of follow-up, but the study ends at 7 years of follow-up. While we do not know the state occupied at 7 years, the absence of a death time can be assumed to be evidence that the patient is still alive. As such the patient's state occupied at 7 years is censored within the set of living states.
+For life history data, the end of follow-up for death may not correspond to the last observation time. For instance, the last observation of a patient may be at 5 years of follow-up, but the study ends at 7 years of follow-up. While we do not know the state occupied at 7 years, the absence of a death time can be assumed to be evidence that the patient is still alive. As such the patient's state occupied at 7 years is censored within the set of living states. 
 
 To accommodate this situation the supplied data should include the times of end of follow up for censored individuals with a corresponding censoring code or codes. The argument \verb!censor! should be a vector of numerical censoring codes, while \verb!censor.states! should be a list of vectors specifying the corresponding sets of possible states implied by the censoring codes. For instance
-\verb!censor=c(98,99)! and \verb!censor.states=list(1:2,1:3)! specifies that \verb!98! implies the individual is in either state 1 or 2, while \verb!99! implies the individual is in eiter state 1, 2 or 3. If  \verb!censor! is a single value then \verb!censor.states! can be specified as a vector. Currently censored states can only be the last state in a patient's sequence.
+\verb!censor=c(98,99)! and \verb!censor.states=list(1:2,1:3)! specifies that \verb!98! implies the individual is in either state 1 or 2, while \verb!99! implies the individual is in either state 1, 2 or 3. If  \verb!censor! is a single value then \verb!censor.states! can be specified as a vector.
+
+For models without misclassification, censoring can only occur as the last observation in a patient's sequence. Since version 0.1.2, misclassification models can accommodate censoring at any position within a patient's sequence. Note that a model without explicit misclassification can be treated as one by supplying an \verb!emat! argument that is simply an $R \times R$ matrix of zeroes (implying the misclassification matrix is always the identity matrix).
 
 \subsection{Output of {\it model.nhm}}
 
@@ -368,7 +315,7 @@ gomp_model
 nhm model object for a Markov model.
 
 Model for intensities has 8 unknown parameters and is of gompertz type.
-
+ 
                     Name   Type
 1             Base: 1->2  Trans
 2             Base: 2->3  Trans
@@ -383,19 +330,19 @@ Model for intensities has 8 unknown parameters and is of gompertz type.
 
 \section{Model fitting: {\it nhm}}
 
-Once a model object has been created using \verb!model.nhm! it can be passed to the main function \verb!nhm!, which allows the likelihood to be computed and maximized.
+Once a model object has been created using \verb!model.nhm! it can be passed to the main function \verb!nhm!, which allows the likelihood to be computed and maximized. 
 
 The arguments of \verb!nhm! control the way in which the model is maximized and which model outputs are required.
 
-The \verb!model_object! argument is for the \verb!nhm_model! object created using \verb!model.nhm!.
+The \verb!model_object! argument is for the \verb!nhm_model! object created using \verb!model.nhm!. 
 
 \subsection{Specification of initial parameter values}
 
 The \verb!initial! argument should correspond to the vector of initial parameter values. This should be a numeric vector of length equal to the number of unknown parameters in the model. For models without misclassification \verb!initial! can be omitted and \verb!gen_inits=TRUE! may be specified. In that case the initial parameter values are specified by calling the function \verb!crudeinits.msm! from the {\bf msm} package. Specifically initial parameters for the baseline transition intensities are found by assuming a homogeneous Markov model and that the observation times correspond to the exact transition times. Covariate effects and any non-homogeneity parameters are all set to zero. This method is not available for models with misclassification.
 
-Note that the choice of initial parameter values can be very important to the eventual success of the optimization routine. Poor initial values may lead either to the optimization routine taking much longer to converge, or could lead to non-convergence. It can also cause problems for the computation of the transition probabilities (see Section \ref{sec:splits} below).
+Note that the choice of initial parameter values can be very important to the eventual success of the optimization routine. Poor initial values may lead either to the optimization routine taking much longer to converge, or could lead to non-convergence. It can also cause problems for the computation of the transition probabilities (see [...] below).
 
-It is best to build the model incrementally. A good starting point is usually a time homogeneous model. A time homogeneous version of the model can be fitted using {\bf msm} and those parameters can be used as starting values. Unfortunately, due to the differences in syntax and the wider range of options in {\bf msm}, this process is not currently automated.
+It is best to build the model incrementally. A good starting point is usually a time homogeneous model. A time homogeneous version of the model can be fitted using {\bf msm} and those parameters can be used as starting values. Unfortunately, due to the differences in syntax and the wider range of options in {\bf msm} this process is not currently automated.
 
 
 \subsection{Control options}
@@ -407,25 +354,30 @@ The \verb!nhm! function contains a \verb!control! argument. The function \verb!n
 The control options \verb!tmax!, \verb!rtol!  and \verb!atol! relate to parameters to be passed to the \verb!lsoda! function within {\it deSolve}. The option \verb!tmax! determines the maximum point at which the system of differential equations should be solve, while \verb!rtol! and \verb!atol! specify the relative and absolute tolerance levels it should use.
 
 \subsubsection{Algorithm options}
+\label{alg_sec}
 
 In general the likelihood is optimized by using Newton-type algorithms in which the parameters are updated in the form
-$$\bm\theta^{(i+1)} = \bm\theta^{(i)} - \delta^{(i)} \mathbf{\tilde{H}}(\bm\theta^{(i)})^{-1}\mathbf{u}(\bm\theta^{(i)})$$
+$$\bm\theta^{(i+1)} = \bm\theta^{(i)} - \delta^{(i)} \mathbf{\tilde{H}}(\bm\theta^{(i)})^{-1}\mathbf{u}(\bm\theta^{(i)})$$ 
 where $\mathbf{u}(\bm\theta) = \frac{\partial \log L(\bm\theta)}{\partial \bm\theta}$, $\mathbf{\tilde{H}}(\bm\theta^{(i)})$ is some estimate of the Hessian and $\delta^{(i)}$ is some scalar, usually in $[0,1]$, that determines the step length.
 
 \subsubsection*{BHHH algorithm}
 
-The default optimization method used by \verb!nhm! is the BHHH algorithm \cite{bhhh}, implemented through the \verb!maxLik! package \cite{maxLik}. The BHHH algorithm exploits the identity $\mathbb{E}(\mathbf{U}\mathbf{U}^{'}) = \mathbb{E}(\mathbf{I})$. This is a quasi-Newton algorithm in which the Hessian is approximated by $-\mathbf{J}(\bm\theta^{(i)})$ where
+The default optimization method used by \verb!nhm! is the BHHH algorithm \cite{bhhh}, implemented through the \verb!maxLik! package \cite{maxLik}. The BHHH algorithm exploits the identity $\mathbb{E}(\mathbf{U}\mathbf{U}^{'}) = \mathbb{E}(\mathbf{I})$. This is a quasi-Newton algorithm in which the Hessian is approximated by $-\mathbf{J}(\bm\theta^{(i)})$ where 
 $$\mathbf{J}(\bm\theta^{(i)}) = \sum_{i=1}^{N} \mathbf{u}_i(\bm\theta^{(i)}) \mathbf{u}_i(\bm\theta^{(i)})^{'}$$
 where $\mathbf{u}_i(\bm\theta^{(i)}) = \frac{\partial log L_i(\bm\theta^{(i)})}{\partial \bm\theta}$ and $L_i(\bm\theta^{(i)})$ is the likelihood contribution for subject $i$. If taking $\delta^{(i)} = 1$ does not result in an improvement to the likelihood, the algorithm will repeatedly halve the step length. The degree of detail of the progress of the BHHH algorithm that is printed can be controlled using \verb!print.level! which should be an integer between 0 and 3. Further control options of the algorithm can be passed to {\it maxLik} using \verb!maxLikcontrol!.
 
 \subsubsection*{Fisher scoring}
 
-For models without misclassification, censoring or exact death times, a Fisher scoring algorithm can instead be used by specifying \verb!fishscore=TRUE!.  This uses minus the expected Fisher information as the estimate of the Hessian. For models that are well identified and are supplied good starting values, the Fisher scoring algorithm tends to be quicker. However, by default the algorithm is not very robust and may fail if the log-likelihood surface is quite flat or if a poor set of initial parameters is supplied. There are some additional options available to improve the robustness; \verb!linesearch! allows a line search to be performed at each iteration to find the best step length, $\delta^{(i)}$. For models that are close to non-identifiable, the algorithm can be modified so that a diagonal term is added to the expected Fisher information, i.e. $\mathbf{\tilde{H}}(\bm\theta^{(i)}) = - \left\{\mathbb{E}(\mathbf{I}(\bm\theta^{(i)})) + \lambda \mathbf{I}_p\right\}$ where $\mathbf{I}_p$ is a $p \times p$ identity matrix. This modification can be specified by setting \verb!damped=TRUE! and the damping parameter $\lambda$ can be specified using \verb!damppar!.
+For models without misclassification, censoring or exact death times, a Fisher scoring algorithm can instead be used by specifying \verb!fishscore=TRUE!.  This uses minus the expected Fisher information as the estimate of the Hessian. For models that are well identified and are supplied good starting values, the Fisher scoring algorithm tends to be quicker. However, by default the algorithm is not very robust and may fail if the log-likelihood surface is quite flat or if a poor set of initial parameters is supplied. There are some additional options available to improve the robustness; \verb!linesearch! allows a line search to be performed at each iteration to find the best step length, $\delta^{(i)}$. For models that are close to non-identifiable, the algorithm can be modified so that a diagonal term is added to the expected Fisher information, i.e. $\mathbf{\tilde{H}}(\bm\theta^{(i)}) = - \left\{\mathbb{E}(\mathbf{I}(\bm\theta^{(i)})) + \lambda \mathbf{I}_p\right\}$ where $\mathbf{I}_p$ is a $p \times p$ identity matrix. This modification can be specified by setting \verb!damped=TRUE! and the damping parameter $\lambda$ can be specified using \verb!damppar!. 
 
-By default, for either the BHHH or Fisher scoring algorithms, a finite differences estimate of the observed Fisher information, $-\frac{\partial^2 \log L}{\partial \bm\theta\partial \bm\theta^{'}}$, is computed. This requires an additional $2p$ evaluations of the likelihood gradient. While the observed information is generally considered to give more accurate standard error estimates, if \verb!obsinfo=FALSE! then \verb!nhm! will instead only provide either the expected Fisher information (in the case of the Fisher scoring algorithm) or $\mathbf{J}(\hat{\bm\theta})$ (in the case of the BHHH algorithm).
+By default, for either the BHHH or Fisher scoring algorithms, a finite differences estimate of the observed Fisher information, $-\frac{\partial^2 \log L}{\partial \bm\theta\partial \bm\theta^{'}}$, is computed. This requires an additional $2p$ evaluations of the likelihood gradient. While the observed information is generally considered to give more accurate standard error estimates, if \verb!obsinfo=FALSE! then \verb!nhm! will instead only provide either the expected Fisher information (in the case of the Fisher scoring algorithm) or $\mathbf{J}(\hat{\bm\theta})$ (in the case of the BHHH algorithm). 
+
+\subsubsection*{Constrained optimization}
+
+If the option \verb!constrained! is set to \verb!TRUE! then the NLMINB algorithm \cite{gay}, implemented via \verb!nlminb()! in the \verb!stats! package, is used for optimization. The square of the individual score contributions is supplied to the \verb!hessian! argument (rather than the exact Hessian), which leads to similar behaviour to the BHHH algorithm. However, \verb!nlminb! allows lower and upper bounds to be specified for each of the parameters to be optimized. The main practical reason to use constrained optimisation is in order to make the algorithm more robust. Particularly for datasets with long follow-up periods and/or for models with Gompertz-type (log-linear) transition intensities, unless very good starting values are supplied there is significant potential for other algorithms to propose parameter values which lead to either numerical under/overflow or a zero value for the likelihood (see also Section \ref{splits_sec}). The \verb!lower! and \verb!upper! arguments can be used to force each parameter to stay within some plausible range, where the aim is to ensure that the magnitude of the resulting transition intensities cannot get either too high or too low to lead to under/overflow problems. Potentially, this process may need to be iterative: if the algorithm still fails it may be necessary to enforce stricter limits, whilst if the algorithm converges with one of the parameters at its lower or upper boundary, it would be necessary to restart with less stringent bounds.
 
 \subsubsection{Splits}
-\label{sec:splits}
+\label{splits_sec}
 
 By default \verb!nhm! finds the transition probabilities by solving a single initial value problem for each unique covariate pattern. Specifically, an initial boundary problem of the form
 \begin{equation}\frac{d\mathbf{P}(t_0, t ; \mathbf{z})}{dt} = \mathbf{P}(t_0,t ; \mathbf{z})\mathbf{Q}(t ;  \mathbf{z}) ~ \mbox{for}  ~ \mathbf{P}(t_0,t_0 ; \mathbf{z}) = \mathbf{I} \label{diff_eq1} \end{equation}
@@ -434,11 +386,13 @@ By the identity $\mathbf{P}(t_0 , t_2; \mathbf{z}) = \mathbf{P}(t_0 , t_1; \math
 $$\mathbf{P}(t_1 , t_2; \mathbf{z}) = \mathbf{P}(t_0 , t_1; \mathbf{z})^{-1}\mathbf{P}(t_0 , t_2; \mathbf{z}).$$
 However, this method relies on $\mathbf{P}(t_0 , t_1; \mathbf{z})$ being invertible. The transition probability matrix may become singular if $t_0$ and $t_1$ are far apart and, for instance, the probability of remaining in a state over that time gets very close to zero. A singular matrix is most likely when poor starting values have been supplied to the optimization, but could also happen for data sets where the vast majority of individuals progress during the follow-up time.
 
-If the algorithm fails due to a singular matrix, an error message will appear informing between which times $(t_0, t_1)$ the singularity arose. Singularities can be avoided by using the \verb!splits! option within \verb!nhm.control!. Specifically, by supplying a vector of split times, \verb!nhm! will categorize the start times into groups and solve separate initial value problems for any intervals within start times in the different groups. For instance, if a split is included at $t=5$ then $P(6,11)$ will be found by solving an initial value problem starting at the first time beyond $5$ rather than from the smallest time with that covariate pattern. Adding splits will tend to increase the computation time, but not substantially.
+If the algorithm fails due to a singular matrix, an error message will appear informing between which times $(t_0, t_1)$ the singularity arose. Singularities can be avoided by using the \verb!splits! option within \verb!nhm.control!. Specifically, by supplying a vector of split times, \verb!nhm! will categorize the start times into groups and solve separate initial value problems for any intervals within start times in the different groups. For instance, if a split is included at $t=5$ then $P(6,11)$ will be found by solving an initial value problem starting at the first time beyond $5$ rather than from the smallest time with that covariate pattern. Adding splits will tend to increase the computation time, but not substantially. 
+
+The control option \verb!safe! forces the functions to always solve a new initial value problem for each unique combination of start time $t_0$ and covariate pattern. While this avoids the need to define \verb!splits!, it will typically lead to a significant increase in computation time. Note that depending on the model and starting values, the algorithm may still fail if appropriate parameter constraints have not been set (see Section \ref{alg_sec}).
 
 \subsubsection{Coarsening covariates}
 
-The majority of the computation time in evaluating the likelihood arises through the solution of the differential equations. The necessity to solve a separate system of equations for each covariate pattern means that models with continuous covariates can be substantially more computationally demanding.
+Usually, the majority of the computation time in evaluating the likelihood arises through the solution of the differential equations. The necessity to solve a separate system of equations for each covariate pattern means that models with continuous covariates can be substantially more computationally demanding.
 
 It may be desirable for large datasets with continuous covariates to consider an approximation to the likelihood based upon coarsening the set of unique covariate values. Titman (2011) \cite{titman} proposed a simple method based on using K-means clustering to group similar values of the continuous covariates and assuming approximating transition probabilities within the same cluster by the transition probability that would arise from the mean covariate values within that cluster. While coarsening the covariates will tend to introduce some attenuation bias in the covariate effects, it may be useful either in the model building stage or in cases where the full model is computationally impractical.
 
@@ -446,40 +400,43 @@ It may be desirable for large datasets with continuous covariates to consider an
 
 An alternative way to speed up the computation of mdoels for data with a large number of unique covariate patterns is to exploit parallel processing. The \verb!ncores! option allows the \verb!mclapply! function in the {\bf parallel} package to allow multiple systems of ODEs to be solved simultaneously.
 
+For models with misclassification, \verb!mclapply! is also used to simultaneously perform the forward algorithm on multiple separate individuals.
+
+By default, if \verb!ncores!$>1$ and \verb!obsinfo=TRUE! then the package will parallelize across the complete gradient calls used to compute the observed Fisher information via finite differences. This should generally be more efficient as there should be less waiting time for all cores to complete. However, for large datasets this could cause memory issues. If \verb!parallel_hess=FALSE!, the package will instead continue to exploit parallel processing within each gradient call in the same way as during the main optimization. 
+
 \subsection{Fixed parameters}
 
-While \verb!model.nhm! allows parameters to be fixed to zero (e.g. no transition, no time non-homogeneity, no covariate effect etc.) or for parameters to be constrained to be equal (e.g. the same time effect for $1 \rightarrow 2$ as $2 \rightarrow 3$), there may also be situations where we wish to fix parameters to specific values. This can be achieved using the \verb!fixedpar! option in \verb!nhm!. \verb!fixedpar! should be vector of integers identifying the indices of the parameters to be fixed. In the optimization these parameters will be fixed at the values supplied in \verb!initial!.  Note that currently if \verb!fixedpar! is used then several of the model output functions are unavailable (\verb!predict!, \verb!qmatrix.nhm!, \verb!ematrix.nhm! and \verb!initialprob.nhm!).
+While \verb!model.nhm! allows parameters to be fixed to zero (e.g. no transition, no time non-homogeneity, no covariate effect etc.) or for parameters to be constrained to be equal (e.g. the same time effect for $1 \rightarrow 2$ as $2 \rightarrow 3$), there may also be situations where we wish to fix parameters to specific values. This can be achieved using the \verb!fixedpar! option in \verb!nhm!. \verb!fixedpar! should be vector of integers identifying the indices of the parameters to be fixed. In the optimization these parameters will be fixed at the values supplied in \verb!initial!.  Note that currently if \verb!fixedpar! is used then several of the model output functions are unavailable (\verb!predict!, \verb!qmatrix.nhm!, \verb!ematrix.nhm! and \verb!initialprob.nhm!). 
 
 \subsubsection{Example: Gompertz model}
 \label{sec:gomp_model2}
 
-A time homogeneous model for the data introduced in Section \ref{sec:gomp_model1} can be fitted using {\bf msm}.
+A time homogeneous model for the data introduced in Section \ref{sec:gomp_model1} can be fitted using {\bf msm}. 
 
 \begin{verbatim}
-model_msm <- msm(state~time,gen.inits=TRUE,subject=id,data=example_data1,
-qmatrix=trans)
+model_msm <- msm(state~time,gen.inits=TRUE,subject=id,data=example_data1,qmatrix=trans)
 \end{verbatim}
 This can be used to gain estimates of the baseline parameters.
 \begin{verbatim}
 model_msm$estimates
 \end{verbatim}
 \begin{verbout}
-     qbase      qbase      qbase
--0.5764525 -0.4078982 -0.6565766
+     qbase      qbase      qbase 
+-0.5764525 -0.4078982 -0.6565766 
 \end{verbout}
 
 \begin{verbatim}
 initpar <- c(model_msm$estimates,rep(0,5))
 gomp_fit1 <- nhm(gomp_model,initial=initpar)
 \end{verbatim}
-Since no control options are specified, a BHHH optimization algorithm is performed which converges in 7 iterations. However, a further 16 gradient evaluations are required to compute the observed information, taking the majority of the computation time.
+Since no control options are specified, a BHHH optimization algorithm is performed which converges in 7 iterations. However, a further 16 gradient evaluations are required to compute the observed information, taking the majority of the computation time. 
 
 Alternatively, a Fisher scoring algorithm may be used
 \begin{verbatim}
 initpar <- c(model_msm$estimates,rep(0,5))
-gomp_fit1a <- nhm(gomp_model,initial=initpar,control=nhm.control(fishscore=TRUE))
+gomp_fit1a <- nhm(gomp_model,initial=initpar,control=nhm.control(fishscore=TRUE)
 \end{verbatim}
-From the same starting values, this converges in just 5 iterations. Again, a further 16 gradient evaluations are required for the observed information.
+From the same starting values, this converges in just 5 iterations. Again, a further 16 gradient evaluations are required for the observed information. 
 
 \subsection{Score test option}
 \label{sec:scoretest}
@@ -491,9 +448,9 @@ is assumed, with this formulation giving a closed form for the test statistic. H
 The \verb!score_test! option in \verb!nhm! enables a score test to be performed of the form
 \begin{equation}H_0 : \bm\beta  = \bm\beta_0 ~\mbox{vs.}~ H_1: \bm\beta \neq \bm\beta_0 \label{scoretest}.\end{equation} Typically $\bm\beta_0 = \mathbf{0}$, corresponding to a time homogeneous model.
 
-If \verb!score_test=TRUE! then the \verb!nhm! function simply computes the gradient and Fisher information at the supplied initial values and stores them in an object of class \verb!nhm_score!. The \verb!print! method for this object is a function which computes and prints the output from a score test.
+If \verb!score_test=TRUE! then the \verb!nhm! function simply computes the gradient and Fisher information at the supplied initial values and stores them in an object of class \verb!nhm_score!. The \verb!print! method for this object is a function which computes and prints the output from a score test.  
 
-Suppose $\hat{\bm\psi}_0$ is the maximum likelihood estimate for the restricted model in which $\bm\beta = \bm\beta_0$, and denote $\hat{\bm\theta}_0 = (\hat{\bm\psi}_0, \bm\beta_0)$.
+Suppose $\hat{\bm\psi}_0$ is the maximum likelihood estimate for the restricted model in which $\bm\beta = \bm\beta_0$, and denote $\hat{\bm\theta}_0 = (\hat{\bm\psi}_0, \bm\beta_0)$. 
 The score statistic is then of the form
 $$S = \mathbf{U}^{'}_{\bm\beta} \mathbf{I}^{\bm\beta \bm\beta} \mathbf{U}_{\beta}$$ where
 $U_\beta = \frac{\partial \log L(\hat{\bm\theta}_0)}{\partial \beta}$ and $\mathbf{I}^{\bm\beta \bm\beta}$ is the square matrix created from the entries of the inverse Fisher information corresponding to $\bm\beta$.
@@ -508,21 +465,21 @@ Note that for the score test to give sensible results the supplied initial param
 
 The score test option is most useful as an exploratory step to determine which, if any transition intensities exhibit time non-homogeneity, and in which direction. However, it could also be used in other situations; for instance to assess whether covariate effects may be beneficial.
 
-\subsubsection{Example: Testing for Gompertz time effects}
+\subsubsection{Example}
 
-Using the first example data set, we can fit a time homogeneous model. This could be done substantially faster using {\it msm}, but here we will use {\it nhm} directly using the previous model settings, except modifying the \verb!nonh! term
+Using the example data set, we can fit a time homogeneous model. This could be done substantially faster using {\it msm}, but here we will use {\it nhm} directly using the previous model settings, except modifying the \verb!nonh! term
 
 \begin{verbatim}
 nonh0 <- matrix(0,4,4)
-gomp_model0 <- model.nhm(state~time, data=example_data1, subject = id,
-covariates=c("cov1","cov2"),type="gompertz",trans=trans,nonh=nonh0,covm=covm)
+gomp_model0 <- model.nhm(state~time, data=example_data1, subject = id, covariates=c("cov1",
+"cov2"),type="gompertz",trans=trans,nonh=nonh0,covm=covm)
 gomp_model0
 \end{verbatim}
 \begin{verbout}
 nhm model object for a Markov model.
 
 Model for intensities has 5 unknown parameters and is of gompertz type.
-
+ 
                     Name  Type
 1             Base: 1->2 Trans
 2             Base: 2->3 Trans
@@ -546,10 +503,10 @@ gomp_score
 \begin{verbout}
 Score test for non-homogeneity components 
                Stat  p-val
-Trend: 1->2  2.5935 0.0095
-Trend: 2->3  1.1613 0.2455
-Trend: 3->4 -0.6771 0.4983
-Overall      8.2249 0.0416
+Trend: 1->2  3.2202 0.0013
+Trend: 2->3 -0.0008 0.9994
+Trend: 3->4 -0.2383 0.8117
+Overall     10.4680 0.0150
 \end{verbout}
 This indicates that there is a strong effect of time on the $1 \rightarrow 2$ transition, but no evidence of an effect for the other two transitions.
 
@@ -557,27 +514,31 @@ This indicates that there is a strong effect of time on the $1 \rightarrow 2$ tr
 
 \subsection{Print method for {\it nhm} class objects}
 
-The \verb!print! method for a fitted model of \verb!nhm! class produces a table of parameter estimates with corresponding 95\% confidence intervals. Note these are the raw parameter estimates ($\theta_{rs}, \beta_{rs}, \bm\gamma_{rs}, a_{rs}, \eta_{rs}, \bm\tau_{rs}$ in the notation given in Section \ref{model_spec}).
+The \verb!print! method for a fitted model of \verb!nhm! class produces a table of parameter estimates with corresponding 95\% confidence intervals. Note these are the raw parameter estimates ($\theta_{rs}, \beta_{rs}, \bm\gamma_{rs}, a_{rs}, \eta_{rs}, \bm\tau_{rs}$ in the notation given in Section \ref{model_spec}). 
 
-If the model is not of \verb!bespoke! type then the parameters will be automatically labelled based on their type and which transition intensities, misclassification probabilities or initial probabilities they govern. For \verb!bespoke! type models, by default the labels will simply be of the form `Bespoke Q parameter $k$'. If desired, more informative names can be produced by including a \verb!parnames! attribute to the \verb!intens! function. This needs to be a character vector of length equal to the number of parameters governing the model for the intensities.
+If the model is not of \verb!bespoke! type then the parameters will be automatically labelled based on their type and which transition intensities, misclassification probabilities or initial probabilities they govern. For \verb!bespoke! type models, by default the labels will simply be of the form `Bespoke Q parameter $k$'. If desired, more informative names can be produced by including a \verb!parnames! attribute to the \verb!intens! function. This needs to be a character vector of length equal to the number of parameters governing the model for the intensities. 
 
 \subsection{Transition probability estimates: {\it predict}}
 
-The \verb!predict! method for an \verb!nhm! class (fitted model) object allows the transition probabilities from a particular start time, \verb!time0!, and starting state, \verb!state0!, and for a particular covariate value, \verb!covvalue!.
+The \verb!predict! method for an \verb!nhm! class (fitted model) object allows the transition probabilities from a particular start time, \verb!time0!, and starting state, \verb!state0!, and for a particular covariate value, \verb!covvalue!. 
 If omitted, \verb!time0=0!, \verb!state0=0! and \verb!covvalue! will be taken as the covariate means.
 Note that the function can only compute the probabilities for one covariate pattern. Hence \verb!covvalue! must be a vector of  length corresponding to the number of covariates in the model and in the order given in the \verb!covariates! argument of the \verb!nhm.model! call.
 
 By default the function will compute the transition probabilities at a vector of times between \verb!time0! and the maximum follow-up time in the data of length 100. However, the \verb!times! option may be used to supply the set of times.
 
-By default \verb!predict! will supply approximate pointwise 95\% confidence intervals for each transition probability by using a logit transformation to provide intervals that lie within $[0,1]$.
+By default \verb!predict! will supply approximate pointwise 95\% confidence intervals for each transition probability by using a logit transformation to provide intervals that lie within $[0,1]$. 
 
 To change the nominal coverage of the limits, \verb!coverage! can be changed from its default of 0.95. Potentially more accurate asymptotic confidence intervals can be obtained by setting \verb!sim=TRUE!, which will mean the simulation delta method \cite{mandel} will be used to compute the limits, rather than the delta method. Note that this option is substantially slower than using the delta method because the system of differential equations will be solved \verb!B! times, where the default is \verb!B=1000!. If no confidence intervals are required, \verb!ci=FALSE! may be specified.
 
 \subsection{Transition intensity estimates: {\it qmatrix.nhm}}
 
-If estimates of the transition intensities are required, rather than the probabilities, then the function \verb!qmatrix.nhm! may be used with an object of \verb!nhm! class. The function has very similar syntax to \verb!predict! except that \verb!time0! refers simply to the minimum time at which the transition intensities are to be computed.
+If estimates of the transition intensities are required, rather than the probabilities, then the function \verb!qmatrix.nhm! may be used with an object of \verb!nhm! class. The function has very similar syntax to \verb!predict! except that \verb!time0! refers simply to the minimum time at which the transition intensities are to be computed. 
 
-By default the asymptotic confidence intervals are computed via the delta method using a $\log$ transformation to ensure that the intervals lie on $[0, \infty)$. Simulation delta method intervals can be obtained by setting \verb!sim=TRUE!.
+By default the asymptotic confidence intervals are computed via the delta method using a $\log$ transformation to ensure that the intervals lie on $[0, \infty)$. Simulation delta method intervals can be obtained by setting \verb!sim=TRUE!. 
+
+\subsection{State occupation probabilities}
+
+The \verb!state_occupation_probabilities.nhm! function computes the state occupation probabilities for a fitted model. Whereas the transition probabilities are based on starting at a specific state at the initial time, the state occupation probabilities are calculated based on an initial state probability distribution. For misclassification models, by default this will be the \verb!initp! estimated or specified by the model. The state occupation probabilities are most useful for models involving left truncation (see Section \ref{sec_left_trunc}). 
 
 \subsection{{\it ematrix.nhm} and {\it initialprob.nhm}}
 
@@ -587,7 +548,8 @@ Similarly, if there is uncertainty in the initial state vector (see Section \ref
 
 \subsection{Plot method for {\it nhm} class objects}
 
-Plotting an \verb!nhm! class object will call either \verb!predict.nhm! or \verb!qmatrix.nhm! in order to produce plots of either the transition probabilities (when \verb!what='probabilities'! which is the default) or transition intensities (when \verb!what='intensities'!). In either case a multi-panel plot is produced with a plot corresponding to either each state, in the case of probabilities, or each viable transition. The same control parameters used in \verb!predict! or \verb!qmatrix.nhm! can also be specified in \verb!plot!, such as the evaluation times, the covariate vector and (for transition probabilities) the initial state. By default pointwise 95\% confidence intervals are produced via the delta method, but simulation delta method intervals may also be produced by specifying \verb!sim=TRUE!.
+Plotting an \verb!nhm! class object will call either \verb!predict.nhm! or \verb!qmatrix.nhm! in order to produce plots of either the transition probabilities (when \verb!what='probabilities'! which is the default), transition intensities (when \verb!what='intensities'!) or state occupation probabilities (when \verb!what='stateoccup'!). In each case a multi-panel plot is produced with a plot corresponding to either each state, in the case of transition or state occupation probabilities, or each viable transition. The same control parameters used in \verb!predict! or \verb!qmatrix.nhm! can also be specified in \verb!plot!, such as the evaluation times, the covariate vector and (for transition probabilities) the initial state. By default pointwise 95\% confidence intervals are produced via the delta method, but simulation delta method intervals may also be produced by specifying \verb!sim=TRUE!. 
+
 
 \subsection{Example: B-spline model with misclassification and covariate effects}
 \label{sec:bspline_example}
@@ -697,17 +659,16 @@ $SEemat
 [4,] 0.00000000 0.00000000 0.00000000    0
 \end{verbout}
 
-
 \section{Specifying bespoke models}
-\label{sec:bespoke}
 
-The \verb!bespoke! model type allows for user supplied functions for the generator matrix of intensities and its derivatives to be used with the package. There are two main motivations for supplying a bespoke function. Firstly, it allows models not otherwise accommodated within the package to be fitted. These could include intensities from other parametric families than Gompertz or Weibull, or models with interactions between covariates and time.
+The \verb!bespoke! model type allows for user supplied functions for the generator matrix of intensities and its derivatives to be used with the package. There are two main motivations for supplying a bespoke function.
+Firstly, it allows models not otherwise accommodated within the package to be fitted. These could include intensities from other parametric families than Gompertz or Weibull, or models with interactions between covariates and time.
 
 The second motivation is to allow the computation time to be reduced for models that are accommodated within the existing functionality. The automatically created functions are slower than a specifically written function, particular for models which are sparse in the number of possible time or covariate effects.
 
 \subsection{Example: Gompertz model}
 
-Suppose firstly we wish to fit the same model as in Section \ref{sec:gomp_model1}. The function needs to take \verb!t!, \verb!z! and \verb!x! as arguments, corresponding to the evaluation time, covariate vector and parameter vector, and should return a list elements \verb!q! - the intensities matrix and  \verb!qp! - the first derivatives of the intensities matrix.
+Suppose firstly we wish to fit the same model as in [...]. The function needs to take \verb!t!, \verb!z! and \verb!x! as arguments, corresponding to the evaluation time, covariate vector and parameter vector, and should return a list elements \verb!q! - the intensities matrix and  \verb!qp! - the first derivatives of the intensities matrix.
 
 \begin{verbatim}
 fourstate_expgrowth<-function(t,z,x) {
@@ -749,11 +710,11 @@ gomp_model_bespoke <- model.nhm(state~time, data=example_data1, subject = id, co
 initpar <- c(model_msm$estimates,rep(0,5))
 gomp_fit1b <- nhm(gomp_model_bespoke,initial=initpar)
 \end{verbatim}
-Exactly the same model as in \verb!gomp_fit1! is fitted, but there is around a 64\% reduction in computation time in this case.
+Exactly the same model as in \verb!gomp_fit1! is fitted, but the computation time in this case is around ..\% faster.
 
 \subsection{Example: Gompertz model with interaction covariate effects}
 
-Now we consider an extended version of the model, where the degree of time non-homogeneity depends on covariate 1. An extra parameter is added that introduces a common interaction between time and covariate 1 for the $1 \rightarrow 2$, $2 \rightarrow 3$ and $3 \rightarrow 4$ transitions.
+Now we consider an extended version of the model, where the degree of time non-homogeneity depends on covariate 1. An extra parameter is added that introduces a common interaction between time and covariate 1 for the $1 \rightarrow 2$, $2 \rightarrow 3$ and $3 \rightarrow 4$ transitions. 
 
 \begin{verbatim}
 fourstate_expgrowth_int<-function(t,z,x) {
@@ -830,7 +791,47 @@ $p
 [1] 0.5051839
 \end{verbout}
 
+\section{Left truncation}
+\label{sec_left_trunc}
 
+For multi-state data arising from cohort studies, the natural choice of time scale may be patient age, rather than time in the study. Moreover, the aim of the analysis may be to obtain an estimate of the target population's transition intensities as a function of age. However, patients will only be recruited into the study conditional on survival to their age at the calendar date the study began which we can denote as $t_{0i}$. Depending on the inclusion criteria or recruitment method, entry into the study may also be conditional on occupation of a specific state (or subset of the non-absorbing states). In general we can denote this set of states as $\mathcal{L}$ which should be a subset of $\{1,\ldots,R\}$.
+
+For models without misclassification, if the state at a patient's entry age is known (either because it is fixed, e.g. state 1, or because their status is observed at entry) then it is not necessary to do anything except include (or, where necessary, impute) their state at entry in the supplied data. 
+
+In contrast, if the state at $t_{0i}$ is not known or is subject to misclassification error, the left truncation needs to be accounted for in the likelihood. Specifically, we need to define a baseline age, $t_{00}$, where there is a fixed state occupation distribution (this could be all in state 1 with probability 1 or it can be defined via the initial state distribution options given in Section \ref{miscarg_sec}). The state occupation probability at $t_{0i}$ for a state $j \in \mathcal{L}$ is then given by
+$$\pi_{ij}(t_{0i}) = P(X_i(t_{0i}) = j) = \frac{\sum_{k} \pi^{(0)}_{ik} P_{kj}(t_{00}, t_{0i})}{\sum_{l \in \mathcal{L}} \sum_{k} \pi^{(0)}_{ik} P_{kl}(t_{00}, t_{0i})}$$
+while $\pi_{ij}(t_{0i}) = 0$ for $j \notin \mathcal{L}$.
+Here, we make the assumption that patients are recruited as a representative sample of those within state $\mathcal{L}$ at time $t_{0i}$.
+
+By default, $t_{0i}$ is ascertained from the patient time given in the data for the patient's first observation. However, some datasets may only include patients who had at least $m$ visits/observations. 
+
+Since version 0.1.2, this form of left-truncation can be accommodated within the modelling provided the overall model is of misclassification type. As noted above, a model can be forced to be treated as misclassification type by supplying a emat argument that is an $R \times R$ matrix of zeroes. \verb!firstobs='misc'! must be specified, but this should not be a restriction since censoring codes can be used for other situations.
+
+\subsubsection*{Left truncation options}
+When specifying the model using \verb!model.nhm!, the relevant arguments are 
+\begin{itemize}
+\item \verb!ltruncation_states! which should be a vector corresponding to $\mathcal{L}$ (the set of states which a patient could occupy at time of recruitment into the model). 
+\item \verb!ltruncation_time! which should be a scalar that specifies the baseline age $t_{00}$ and defaults to 0.
+\item \verb!ltruncation_entry! which should be a positive integer indicating at which observation number the left truncation conditions should apply. By default this is 1, if it is $m$ then it is assumed that the patient has been recruited into the study conditional on $X(t_{0i}) \in \mathcal{L}$ where $t_{0i}$ is their age at their $m$th observation.
+\end{itemize}
+
+If the state occupation probabilities are calculated using \verb!state_occupation_probabilities.nhm! (or \verb!plot! using \verb!what='stateoccup'!) for a model with left truncation then the initial state occupation probabilities at time \verb!time0! will be calculated assuming the initial state probabilities held at \verb!ltruncation_time! and that only occupation within \verb!ltruncation_states! is possible at \verb!time0!. Note that it is also possible to supply a list \verb!ltruncation! containing \verb!ltruncation_states! and \verb!ltruncation_time! in order to estimate the state occupation probabilities that would arise under different sampling schemes.
+
+\subsection{Additional options}
+Version 0.1.2. includes additional developmental options to 
+\begin{enumerate}
+\item allow testing of the assumption of non-informative observation via targeted score tests (using the \verb!inform! option in \verb!model.nhm!)
+\item allow semi-Markov and misclassification hidden semi-Markov models defined as aggregated Markov processes (using the \verb!phasemap! option). Currently this can only be applied to `bespoke' type models.
+\item estimate the expected time spent in each state of a fitted model, using the \verb!state_life_expectancy! function, and to estimate the expected hitting time for a fitted progressive model using \verb!expected_hitting_time!.
+\end{enumerate}
+Further details of these features will be provided in the future.
+
+%Is this too long to include.
+%\subsection{Semi-Markov models}
+%
+%The Markov assumption for $X(t)$ is primarily a mathematical convenience and may not necessarily provide a good fit to the true underlying process. One of the simplest way in which the Markov assumption may be violated is through duration dependence in the transition intensities, i.e. where the transition intensities depend on the time since entry into the state $t^{*}$ as well as patient time $t$; $q_{rs}(t, t^{*} ; \mathbf{z})$. In general, semi-Markov processes for panel observation data have intractable likelihoods. The exception is the situation where the observable semi-Markov process can be expressed as an aggregated Markov process. In the time-homogeneous case this property was exploited by Titman and Sharples (2009) to produce semi-Markov models where the sojourn distributions have Coxian phase-type distributions. However, in principle, the same idea can be applied to non-homogeneous processes. Specifically, we define a Markov process, $X^{*}(t)$, on $R^{*} > R$ states. $X(t)$ is then defined via some mapping from $\{1,\ldots,R^{*}\}$ to $\{1,\ldots,R\}$, e.g. $X(t)= j if X^{*}(t) \in \mathcal{U}_j$ for $j=1,\ldots,R$ where $\mathcal{U}_1,\ldots, \mathcal{U}_R$ form a partition of $\{1,\ldots,R^{*}\}$.
+%
+%In practice, the above specification can very easily lead to models that are not identifiable. Following the experience in Titman and Sharples (2009), a potential approach would be to restrict $X(t)$ to correspond to at most two states of $X^{*}(t)$, e.g. $i_1$ and $i_2$. 
 
 \begin{thebibliography}{unsrt}
 
@@ -839,6 +840,8 @@ $p
 \bibitem{coxmiller} Cox DR, Miller HD (1965).{\it The Theory of Stochastic Processes.} Chapman and Hall, London.
 
 \bibitem{stavola} de Stavola BL. (1988). Testing Departures from Time Homogeneity in Multistate Markov Processes. {\it Journal of the Royal Statistical Society: Series C (Applied Statistics)} {\bf 37}. 242--250.
+
+\bibitem{gay} Gay D.M. (1990), Usage summary for selected optimization routines. Computing Science Technical Report 153, AT\&T Bell Laboratories, Murray Hill.
 
 \bibitem{maxLik} Henningsen A, Toomet O. (2011). maxLik: A package for maximum likelihood estimation in R.  {\it Computational Statistics}, {\bf 26}. 443--458.
 
@@ -849,7 +852,7 @@ $p
 
 \bibitem{kalbfleisch} Kalbfleisch J.D, Lawless J.F. (1985) The analysis of panel data under a Markov assumption. {\it Journal of the American Statistical Association} {\bf 80}:863-871.
 
-\bibitem{lystig} Lystig TC., Hughes JP. (2002) Exact computation of the observed information matrix for hidden Markov models. {\it Journal of Computational and Graphical Statistics}, {\bf 11}, 678--689.
+\bibitem{lystig} Lystig TC., Hughes JP. (2002) Exact computation of the observed information matrix for hidden Markov models. {\it Journal of Computational and Graphical Statistics}, {\bf 11}, 678--689. 
 
 \bibitem{mandel} Mandel M. (2013) Simulation-based confidence intervals for functions with complicated derivatives. {\it The American Statistician}, {\bf 67}. 76--81.
 
@@ -861,3 +864,5 @@ $p
 
 \end{thebibliography}
 \end{document}
+
+

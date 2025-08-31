@@ -22,7 +22,7 @@ control, score_test=FALSE, fixedpar=NULL)
     transition intensities are generated automatically using the method
     in \code{crudeinits.msm} from the \pkg{msm} package.  This is not available for models with misclassified states.
   If \code{FALSE} a BHHH algorithm implemented using \pkg{maxLik} is used.}
-  \item{control}{Object of class \code{nhm.control} specifying various settings for the solution of the KFEs and the optimization. See \code{\link{nhm.control}} for default settings.
+  \item{control}{A named list specifying various settings for the solution of the KFEs and the optimization. See \code{\link{nhm.control}} for default settings.
 }
   \item{score_test}{If \code{TRUE} just the gradient and Fisher information at the supplied values will be computed to allow score tests to be performed.}
     \item{fixedpar}{Numerical vector indicating which parameters are taken as fixed at the value specified by \code{initial}.}
@@ -47,7 +47,7 @@ nonh <- rbind(c(0,1,0,0),c(0,0,2,0),c(0,0,0,3),rep(0,4))
 gomp_model <- model.nhm(state~time, data=example_data1, subject = id,
                         type="gompertz",trans=trans,nonh=nonh)
 initial_val <- c(-0.65,-0.45,-0.55,0,0,0)
-gomp_fit <- nhm(gomp_model,initial=initial_val,control=nhm.control(obsinfo=FALSE))
+gomp_fit <- nhm(gomp_model,initial=initial_val,control=list(obsinfo=FALSE))
 gomp_fit
 plot(gomp_fit)
 plot(gomp_fit,what="intensities")

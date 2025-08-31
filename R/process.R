@@ -47,9 +47,14 @@ process_inputs <- function(formula,  data, covariates,covm,ecovm,initcovm) {
         if (dim(covm)[3]!=length(covariates)) stop("If covm is an array it must be of dimension nstate x nstate x ncov")
         standard_covm <- covm
       }
+      covused <- 1*apply(standard_covm, 3, function(x) any(x!=0))
+
     }else{
       standard_covm <- NULL
+      covused <- rep(0,length(covariates))
     }
+
+
 
     #Make ecovm into an array rather than list
     if (!is.null(ecovm)) {
@@ -75,7 +80,7 @@ process_inputs <- function(formula,  data, covariates,covm,ecovm,initcovm) {
     #Make ecovm into an array rather than list
     if (!is.null(initcovm)) {
       if (is.list(initcovm)) {
-        if (is.null(names(initcovm))) stop("ecovm must be a named list")
+        if (is.null(names(initcovm))) stop("initcovm must be a named list")
         indexes <- match(names(initcovm),covariates,nomatch=0)
         if (any(indexes==0)) {
           stop("names in initcovm must correspond to named covariates")
@@ -125,68 +130,105 @@ process_inputs <- function(formula,  data, covariates,covm,ecovm,initcovm) {
     ###########
 
   }else{
-    standard_covariates <- standard_covm <- standard_ecovm <- standard_initcovm <- NULL
+    covused <- standard_covariates <- standard_covm <- standard_ecovm <- standard_initcovm <- NULL
   }
-  processed <- list(data=standard_data,covariates=standard_covariates, covm=standard_covm, ecovm=standard_ecovm,initcovm=standard_initcovm)
+  processed <- list(data=standard_data,covariates=standard_covariates, covm=standard_covm, ecovm=standard_ecovm,initcovm=standard_initcovm,covused=covused)
   return(processed)
 }
 
+
+
 #Data processing for finding the transition probabilities
-dataprocess.nhm <- function(state,time,subject,covariates,ncov,splits,firstobs) {
+dataprocess.nhm <- function(state,time,subject,covariates,ncov,splits,firstobs,safe,ltrunc,covused) {
+
+  subject <- match(subject,unique(subject)) #Force to be unique 1,2,...,N
   #Function to process data for speedier maximization of the likelihood.
+  nsub <- length(unique(subject))
+  #################################
+
+  if (!is.null(ltrunc)) {
+    origin_time <- ltrunc$ltruncation_time
+  }else{
+    origin_time <- 0
+  }
+  if (min(time) < origin_time) {
+    if (!is.null(ltrunc)) warning("Observation times before the specified origin time.")
+    if (is.null(ltrunc) & firstobs%in%"misc") warning("Observation times before assumed origin time of 0.")
+  }
+  ######################################
   fobs <- rep(tapply(1:length(subject),subject,min),table(subject))
   lobs <- rep(tapply(1:length(subject),subject,max),table(subject))
- if (firstobs%in%c("exact","absent")) {
-  #Essentially discard the first observation as a placeholder
-  from <- c(NA,state[1:(length(state)-1)])
-  init_state <- state[unique(fobs)]
-  to <- state
-  from <- from[-fobs]
-  to <- to[-fobs]
-  fromt <- c(NA,time[1:(length(state)-1)])
-  tot <- time
-  fromt <- fromt[-fobs]
-  tot <- tot[-fobs]
-  subject <- subject[-fobs]
- }else{
-   ftim <- rep(tapply(time,subject,min),table(subject))
-   from <- c(1,state[1:(length(state)-1)])
-   init_state <- state[unique(fobs)] #NB: This won't be used if "exact" is not specified.
-   to <- state
-   from[unique(fobs)] <- 1 #NB: This will effectively be treated like a placeholder
-   fromt <- c(0,time[1:(length(state)-1)])
-   fromt[unique(fobs)] <- ftim[unique(fobs)] #Set to the minimum time so that the first pmat is the identity matrix
-   tot <- time
- }
-  subject <- match(subject,unique(subject)) #Force to be unique 1,2,...,N
+  if (firstobs%in%c("exact","absent") & is.null(ltrunc)) {
+    #Essentially discard the first observation as a placeholder
+    from <- c(NA,state[1:(length(state)-1)])
+    init_state <- state[unique(fobs)]
+    to <- state
+    from <- from[-fobs]
+    to <- to[-fobs]
+    fromt <- c(NA,time[1:(length(state)-1)])
+    tot <- time
+    fromt <- fromt[-fobs]
+    tot <- tot[-fobs]
+    subject <- subject[-fobs]
+  }else{
+    from <- c(1,state[1:(length(state)-1)])
+    init_state <- state[unique(fobs)] #NB: This won't be used if "exact" is not specified.
+    to <- state
+    from[unique(fobs)] <- 1 #NB: This will effectively be treated like a placeholder
+    fromt <- c(origin_time,time[1:(length(state)-1)])
+    if (is.null(ltrunc)) {
+      ftim <- rep(tapply(time,subject,min),table(subject))
+      fromt[unique(fobs)] <- ftim[unique(fobs)] #Set to the minimum time so that the first pmat is the identity matrix
+    }else{
+      fromt[unique(fobs)] <- origin_time #Set the first time to the origin time for all subjects
+    }
+    tot <- time
+  }
   nsub <- length(unique(subject))
 
-  if (!is.null(splits)) {
+  if (!is.null(splits) & !safe) {
     splits <- sort(unique(c(min(fromt),splits,max(fromt))))
     splitcat <- as.numeric(cut(fromt, breaks=splits,include.lowest = TRUE))
   }else{
-    splitcat <- rep(1,length(fromt))
+    if (safe) {
+      splitcat <- match(fromt, sort(unique(fromt))) #Allow a separate solver from all unique start times.
+    }else{
+      splitcat <- rep(1,length(fromt))
+    }
   }
 
   if (ncov>0) {
-    initcovs <- covariates[unique(fobs),,drop=FALSE] #NB: Not used in the "exact" case and only if there are initp covariates.
+    initcovs <- covariates[unique(fobs),,drop=FALSE] #NB: Not used in the "exact" case and only if there are initp covariates or left-truncation.
     finalcovs<- covariates[unique(lobs),,drop=FALSE]
-    if (firstobs%in%c("exact","absent")) {
-     rem<-(1:length(covariates[,1]))[-fobs]-1
-     covariates <- covariates[rem,,drop=FALSE]
-    }else{
-      #Need to retain but repeat the first ones twice?
+    if (firstobs%in%c("exact","absent") & is.null(ltrunc)) {
       rem<-(1:length(covariates[,1]))[-fobs]-1
-      covariates0 <- covariates[rem,,drop=FALSE]
-      covariates <- 0*covariates
-      covariates[-unique(fobs),] <- covariates0  ####
-      covariates[unique(fobs),] <- initcovs      ####
+      covariates <- covariates[rem,,drop=FALSE]
+    }else{
+      #if (!is.null(ltrunc)) {
+      #Need to retain but repeat the first ones twice?
+      rem<-(1:length(covariates[,1]))[-fobs]-1 #Index of covariates not first obs
+      covariates0 <- covariates[rem,,drop=FALSE] #Covariates excluding the first
+      covariates <- 0*covariates                 #Clear the remainder
+      covariates[-unique(fobs),] <- covariates0  #Add the original back in
+      covariates[unique(fobs),] <- initcovs      #Put the initial cov values back in.
+      #NOT CLEAR WHY CANNOT JUST RETAIN covariates as it was??
+      #}else{
+      #  rem <- (1:length(covariates[,1]))[-fobsE]-1
+      #  covariates <- covariates[rem,,drop=FALSE]
+      #}
     }
-    uniq  <-  data.frame(unique(cbind(covariates,splitcat)))
+    ####################
+    #Make the covariate index based only on the covariates used in the qmatrix model
+    covariatesq <- covariates
+    if (sum(covused==0) >0) {
+      covariatesq[,which(covused==0)]<-0
+    }
+    ####################
+    uniq  <-  data.frame(unique(cbind(covariatesq,splitcat)))
     uniqcov <- uniq[,-dim(uniq)[2],drop=FALSE]
     nouniq  <-  dim(uniq)[1]
     pastedu  <-  do.call("paste",uniq)
-    pastedc  <-  do.call("paste",data.frame(cbind(covariates,splitcat)))
+    pastedc  <-  do.call("paste",data.frame(cbind(covariatesq,splitcat)))
     covindex  <-  match(pastedc,pastedu)
   }else{
     finalcovs <- initcovs <- uniqcov <- uniq <- NULL
@@ -216,13 +258,50 @@ dataprocess.nhm <- function(state,time,subject,covariates,ncov,splits,firstobs) 
     totindex[[i]] <- apply(array(totlist[[i]],c(length(totlist[[i]]),1)),1,function(x) which(x==timeslist[[i]]))
     subjectindex[[i]] <- apply(array(sublist[[i]],c(length(sublist[[i]]),1)),1,function(x) which(x==timeslist[[i]]))
   }
-  list(ncovvals=ncovvals,covs=uniqcov,covtable=covtable,timesets=timeslist,fromtimeindex=fromtindex,totimeindex=totindex,fromtimesets=fromtlist,totimesets=totlist,fromsets=fromlist,tosets=tolist,sublist=sublist,nsub=nsub,obslist=obslist,init_state=init_state,initcovs=initcovs,finalcovs=finalcovs)
+  list(ncovvals=ncovvals,covs=uniqcov,covtable=covtable,timesets=timeslist,fromtimeindex=fromtindex,totimeindex=totindex,fromtimesets=fromtlist,totimesets=totlist,fromsets=fromlist,tosets=tolist,sublist=sublist,nsub=nsub,obslist=obslist,init_state=init_state,initcovs=initcovs,finalcovs=finalcovs,ltrunc=ltrunc)
+}
+
+#Additional processing for hidden models.
+hidden_process <- function(state,time, subject, covariates, processed, firstobs,ncov) {
+  if (firstobs%in%c("exact","absent")) {
+    fobs <- rep(tapply(1:length(subject),subject,min),table(subject))
+    statel <- state[-fobs]
+    timel <- time[-fobs]
+    subjectl <- subject[-fobs]
+    if (ncov>0) {
+      cov2 <- covariates[-fobs,,drop=FALSE]
+    }else{
+      cov2 <- NULL
+    }
+  }else{
+    statel <- state
+    timel <- time
+    subjectl <- subject
+    if (ncov>0) {
+      cov2 <- covariates
+    }else{
+      cov2 <- NULL
+    }
+  }
+  ###Make the starting occurrence and last occurrence of each subject an attribute of subjectl#####
+  substart <- sapply(unique(subjectl), function(x) min(which(subjectl==x)))
+  substop <- sapply(unique(subjectl), function(x) max(which(subjectl==x)))
+  attr(subjectl, "substart") <- substart
+  attr(subjectl, "substop") <- substop
+  #######################################
+  return(list(cov2=cov2, statel=statel, timel=timel, subjectl=subjectl))
 }
 
 
 
 
-get_names <- function(trans,nonh,covm,covnames,model,nparper=NULL) {
+# time_check <- function(timesets) {
+#   mint <- sapply(timesets, function(x) min(diff(x)))
+#   min_int <- min(mint)
+#   if (min_int < 1e-6) warning("Very small time intervals between solution points. Consider coarsening times in dataset.")
+# }
+
+get_names <- function(trans,nonh,covm,inform, covnames,model,nparper=NULL) {
   covlabel <- "Covariate:"
   if (model=="gompertz") {
     label <- c("Base:","Trend:")
@@ -246,16 +325,16 @@ get_names <- function(trans,nonh,covm,covnames,model,nparper=NULL) {
   }
 
   if (model!="initp") {
-  n1 <- (array(paste(rep(1:R,R),rep(1:R,each=R),sep="->"),c(R,R)))
-  parnamesA <- paste(label[1],sapply(1:max(trans),function(x) paste(c(n1)[which(c(trans)==x)],collapse="/")),sep=" ")
+    n1 <- (array(paste(rep(1:R,R),rep(1:R,each=R),sep="->"),c(R,R)))
+    parnamesA <- paste(label[1],sapply(1:max(trans),function(x) paste(c(n1)[which(c(trans)==x)],collapse="/")),sep=" ")
   }else{
-  n1 <- 1:R
-  parnamesA <- paste(label[1],sapply(1:max(trans),function(x) paste(c(n1)[which(c(trans)==x)],collapse="/")),sep=" ")
+    n1 <- 1:R
+    parnamesA <- paste(label[1],sapply(1:max(trans),function(x) paste(c(n1)[which(c(trans)==x)],collapse="/")),sep=" ")
   }
   if (!model%in%c("emat","initp")) {
     if (max(nonh)>0) {
-    n2 <- (array(paste(rep(1:R,R),rep(1:R,each=R),sep="->"),c(R,R)))
-    parnamesB <- paste(label[2],sapply(1:max(nonh),function(x) paste(c(n2)[which(c(nonh)==x)],collapse="/")),sep=" ")
+      n2 <- (array(paste(rep(1:R,R),rep(1:R,each=R),sep="->"),c(R,R)))
+      parnamesB <- paste(label[2],sapply(1:max(nonh),function(x) paste(c(n2)[which(c(nonh)==x)],collapse="/")),sep=" ")
     }else{
       parnamesB <- NULL
     }
@@ -268,77 +347,105 @@ get_names <- function(trans,nonh,covm,covnames,model,nparper=NULL) {
   }
 
   if (model!="initp") {
-  if (!is.null(covm)) {
-    Nc <- dim(covm)[3]
+    if (!is.null(covm)) {
+      Nc <- dim(covm)[3]
 
-    if (is.null(covnames)) covnames <- paste(covlabel,1:Nc)
+      if (is.null(covnames)) covnames <- paste(covlabel,1:Nc)
 
-    n3 <- (array(paste(covlabel,rep(covnames,each=R^2),rep(rep(1:R,R),Nc),"->",rep(rep(1:R,each=R),Nc)),c(R,R,Nc)))
-    parnamesC <- paste(sapply(1:max(covm),function(x) paste(c(n3)[which(c(covm)==x)],collapse="/")),sep=" ")
-  }else{
-    parnamesC <- NULL
-  }
+      n3 <- (array(paste(covlabel,rep(covnames,each=R^2),rep(rep(1:R,R),Nc),"->",rep(rep(1:R,each=R),Nc)),c(R,R,Nc)))
+      parnamesC <- paste(sapply(1:max(covm),function(x) paste(c(n3)[which(c(covm)==x)],collapse="/")),sep=" ")
+    }else{
+      parnamesC <- NULL
+    }
   }else{
     if (!is.null(covm)) {
-    Nc <- dim(covm)[2]
-    R <- dim(covm)[1]
-    if (is.null(covnames)) covnames <- paste(covlabel,1:Nc)
-    nc <- array(paste(covlabel,rep(covnames,each=R),"on",rep(1:R,Nc)),c(R,Nc))
-    parnamesC <- paste(sapply(1:max(covm),function(x) paste(c(nc)[which(c(covm)==x)],collapse="/")),sep=" ")
+      Nc <- dim(covm)[2]
+      R <- dim(covm)[1]
+      if (is.null(covnames)) covnames <- paste(covlabel,1:Nc)
+      nc <- array(paste(covlabel,rep(covnames,each=R),"on",rep(1:R,Nc)),c(R,Nc))
+      parnamesC <- paste(sapply(1:max(covm),function(x) paste(c(nc)[which(c(covm)==x)],collapse="/")),sep=" ")
     }else{
       parnamesC <-NULL
     }
 
   }
-  parnames <- c(parnamesA,parnamesB,parnamesC)
+  if (model%in%c("gompertz","weibull","bspline")) {
+    if (!is.null(inform)) {
+      if (max(inform)>0) {
+        n3 <- (array(paste(rep(1:R,R),rep(1:R,each=R),sep="->"),c(R,R)))
+        parnamesD <- paste("Inform:",sapply(1:max(inform),function(x) paste(c(n3)[which(c(inform)==x)],collapse="/")),sep=" ")
+      }else{
+        parnamesD <- NULL
+      }
+
+    }else{
+      parnamesD <- NULL
+    }
+  }else{
+    parnamesD <-NULL
+  }
+
+
+
+  parnames <- c(parnamesA,parnamesB,parnamesC,parnamesD)
   if (!model%in%c("emat","initp")) {
-    parclass <- rep(c("Trans","Nonhom","Cov"),c(length(parnamesA),length(parnamesB),length(parnamesC)))
+    parclass <- rep(c("Trans","Nonhom","Cov","Inform"),c(length(parnamesA),length(parnamesB),length(parnamesC),length(parnamesD)))
   }else{
     if (model=="emat") {
-    parclass <- rep("Emat",length(parnames))
+      parclass <- rep("Emat",length(parnames))
     }else{
-    parclass <- rep("Initp",length(parnames))
+      parclass <- rep("Initp",length(parnames))
     }
   }
   return(list(parnames=parnames,parclass=parclass))
 }
 
+
+
+
 #Create an overall wrapper function
-intens_generate.nhm <- function(type="gompertz",trans, nonh, covm=NULL, centre_time=0, splinelist=NULL, degrees=NULL,covnames=NULL) {
+intens_generate.nhm <- function(type="gompertz",trans, nonh, covm=NULL, inform=NULL, centre_time=0, splinelist=NULL, degrees=NULL,covnames=NULL) {
   #TO DO:
   #Way of incorporating covariate values relating to ematrix for misclassification
   #Minimally would just specify how many extra parameters come from ematrix.
+
+
 
   #Validity checks:
   if (is.null(centre_time)) centre_time<-0
   if (!type%in%c("gompertz","weibull","bspline")) stop("Invalid type")
   if (dim(trans)[1]!=dim(trans)[2] | length(dim(trans))!=2) stop("trans should be a square matrix")
   if (dim(nonh)[1]!=dim(nonh)[2] | length(dim(nonh))!=2) stop("trans should be a square matrix")
+  if (!is.null(inform)) {
+    if (dim(inform)[1]!=dim(inform)[2] | length(dim(inform))!=2) stop("infor, should be a square matrix")
+  }
   if (!identical(dim(trans),dim(nonh))) stop("trans and nonh should be of the same dimension")
   if (!is.null(covm) & (!identical(dim(covm)[1:2],dim(trans))  | length(dim(covm))!=3)) stop("covm should be an R x R x Nc array")
   if (type!="bspline" & (!is.null(splinelist) | !is.null(degrees))) warning("splinelist and degrees are only for bsplines")
   if (type!="gompertz" & centre_time!=0) warning("centre_time is only used for gompertz")
 
   if (type=="gompertz") {
-    intens <- intens_generate_gompertz(trans,nonh,covm,centre_time,covnames)
+    intens <- intens_generate_gompertz(trans,nonh,covm,inform, centre_time,covnames)
   }
   if (type=="weibull") {
-    intens <- intens_generate_weibull(trans,nonh,covm,covnames)
+    intens <- intens_generate_weibull(trans,nonh,covm,inform, covnames)
   }
   if (type=="bspline") {
-    intens <- intens_generate_bspline(trans,nonh,covm,splinelist,degrees,covnames)
+    intens <- intens_generate_bspline(trans,nonh,covm,inform, splinelist,degrees,covnames)
   }
   return(intens)
 }
 
 
 
-intens_generate_gompertz <- function(trans,nonh, covm=NULL,centre_time=0,covnames=NULL) {
+intens_generate_gompertz <- function(trans,nonh, covm=NULL,inform=NULL, centre_time=0,covnames=NULL) {
   #trans: R x R matrix of viable transitions (0= no transition, p = which of the parameter vector)
   #nonh: R x R matrix of viable transitions with a linear time effect
   #covm: R x R x Nc array ofviable transitions with a log-linear covariate effect
+  #inform: Rx R matrix of viable transitions to test for informative observation
+  ####(NB: Will assume that the final covariate corresponds to last observation time.)
   #centre_time: Value to centre_time the times by: potentially improves convergence.
-  gtname <- get_names(trans,nonh,covm,covnames,model="gompertz")
+  gtname <- get_names(trans,nonh,covm,inform,covnames,model="gompertz")
   parnames <- gtname$parnames
   parclass <- gtname$parclass
 
@@ -351,21 +458,35 @@ intens_generate_gompertz <- function(trans,nonh, covm=NULL,centre_time=0,covname
   }else{
     npar3 <- 0
   }
-  npar <- npar1 + npar2 + npar3
+
+  if (!is.null(inform)) {
+    npar4 <- max(inform)
+  }else{
+    npar4 <-0
+  }
+
+
+  npar <- npar1 + npar2 + npar3 + npar4
   B <- array(0,c(dim(trans),npar1))
   for (b in 1:npar1) {
     B[,,b] <- array(1,dim(trans))*(trans==b)
   }
   if (npar2 >0 ) {
-  Ct <- array(0,c(dim(trans),npar2))
-  for (b in 1:npar2) {
-    Ct[,,b] <- array(1,dim(nonh))*(nonh==b)
-  }
+    Ct <- array(0,c(dim(trans),npar2))
+    for (b in 1:npar2) {
+      Ct[,,b] <- array(1,dim(nonh))*(nonh==b)
+    }
   }
   if (npar3 > 0) {
     C <- array(0,c(dim(covm),npar3))
     for (b in 1:npar3) {
       C[,,,b] <-  array(1,dim(covm))*(covm==b)
+    }
+  }
+  if (npar4 >0) {
+    D <- array(0,c(dim(trans),npar4))
+    for (b in 1:npar4) {
+      D[,,b] <-  array(1,dim(inform))*(inform==b)
     }
   }
 
@@ -382,10 +503,10 @@ intens_generate_gompertz <- function(trans,nonh, covm=NULL,centre_time=0,covname
       lQ <- lQ + B[,,b]*x[b]
     }
     if (npar2 >0) {
-    for (b in 1:npar2) {
-      lQ <- lQ + Ct[,,b]*t*x[b+npar1]
-      DlQ[,,npar1 + b] <- Ct[,,b]*t
-    }
+      for (b in 1:npar2) {
+        lQ <- lQ + Ct[,,b]*t*x[b+npar1]
+        DlQ[,,npar1 + b] <- Ct[,,b]*t
+      }
     }
     if (npar3 >0) {
       for (v in 1:length(z)) {
@@ -393,6 +514,13 @@ intens_generate_gompertz <- function(trans,nonh, covm=NULL,centre_time=0,covname
           lQ <- lQ + C[,,v,b]*z[v]*x[b+npar1+npar2]
           DlQ[,,npar1+npar2+b] <- DlQ[,,npar1+npar2+b] + C[,,v,b]*z[v]
         }
+      }
+    }
+    if (npar4 >0) {
+      l <- length(z)
+      for (b in 1:npar4) {
+        lQ <- lQ + D[,,b]*(t - z[l])*x[b+npar1+npar2+npar3]
+        DlQ[,,npar1 +npar2 + npar3 + b] <- D[,,b]*(t - z[l])
       }
     }
     Q <- exp(lQ)*(trans>0)
@@ -413,12 +541,12 @@ intens_generate_gompertz <- function(trans,nonh, covm=NULL,centre_time=0,covname
 
 #Version for Weibull models:
 
-intens_generate_weibull <- function(trans,nonh, covm=NULL,covnames=NULL) {
+intens_generate_weibull <- function(trans,nonh, covm=NULL, inform=NULL, covnames=NULL) {
   #trans: R x R matrix of viable transitions (0= no transition, p = which of the parameter vector)
   #nonh: R x R matrix of viable transitions with a Weibull shape parameter different from 1
   #covm: R x R x Nc array ofviable transitions with a log-linear covariate effect
 
-  gtname <- get_names(trans,nonh,covm,covnames,model="weibull")
+  gtname <- get_names(trans,nonh,covm,inform,covnames,model="weibull")
   parnames <- gtname$parnames
   parclass <- gtname$parclass
 
@@ -430,7 +558,13 @@ intens_generate_weibull <- function(trans,nonh, covm=NULL,covnames=NULL) {
   }else{
     npar3 <- 0
   }
-  npar <- npar1 + npar2 + npar3
+  if (!is.null(inform)) {
+    npar4 <- max(inform)
+  }else{
+    npar4 <-0
+  }
+  npar <- npar1 + npar2 + npar3 + npar4
+
   B <- array(0,c(dim(trans),npar1))
   for (b in 1:npar1) {
     B[,,b] <- array(1,dim(trans))*(trans==b)
@@ -446,6 +580,12 @@ intens_generate_weibull <- function(trans,nonh, covm=NULL,covnames=NULL) {
     }
   }
 
+  if (npar4 >0) {
+    D <- array(0,c(dim(trans),npar4))
+    for (b in 1:npar4) {
+      D[,,b] <-  array(1,dim(inform))*(inform==b)
+    }
+  }
   #mapping
 
   #For each basic parameter, we have a matrix of
@@ -477,6 +617,13 @@ intens_generate_weibull <- function(trans,nonh, covm=NULL,covnames=NULL) {
         }
       }
     }
+    if (npar4 >0) {
+      l <- length(z)
+      for (b in 1:npar4) {
+        lQ <- lQ + D[,,b]*(t - z[l])*x[b+npar1+npar2+npar3]
+        DlQ[,,npar1 +npar2 + npar3 + b] <- D[,,b]*(t - z[l])
+      }
+    }
     Q <- exp(lQ)*(trans>0)
     diag(Q) <- -apply(Q,1,sum)
     for (b in 1:npar) {
@@ -493,7 +640,7 @@ intens_generate_weibull <- function(trans,nonh, covm=NULL,covnames=NULL) {
 }
 
 #Version for B-spline basis models
-intens_generate_bspline <- function(trans,nonh, covm=NULL, splinelist=NULL,degrees=NULL,covnames=NULL) {
+intens_generate_bspline <- function(trans,nonh, covm=NULL, inform=NULL, splinelist=NULL,degrees=NULL,covnames=NULL) {
   #As with the other functions but in addition:
   #splinelist: list of knot locations for spline basis functions including boundary knots
   #NB: If a value above the upper spline point is specified then take the upper knot point.
@@ -509,7 +656,7 @@ intens_generate_bspline <- function(trans,nonh, covm=NULL, splinelist=NULL,degre
   nparper <- sapply(splinelist,length)+(degrees-2)
   transind <- rep(1:length(nparper),nparper)
 
-  gtname <- get_names(trans,nonh,covm,covnames,model="bspline",nparper=nparper)
+  gtname <- get_names(trans,nonh,covm,inform,covnames,model="bspline",nparper=nparper)
   parnames <- gtname$parnames
   parclass <- gtname$parclass
 
@@ -520,7 +667,14 @@ intens_generate_bspline <- function(trans,nonh, covm=NULL, splinelist=NULL,degre
   }else{
     npar3 <- 0
   }
-  npar <- npar1 + npar2 + npar3
+
+  if (!is.null(inform)) {
+    npar4 <- max(inform)
+  }else{
+    npar4 <-0
+  }
+  npar <- npar1 + npar2 + npar3 + npar4
+
   B <- array(0,c(dim(trans),npar1))
   for (b in 1:npar1) {
     B[,,b] <- array(1,dim(trans))*(trans==b)
@@ -538,6 +692,14 @@ intens_generate_bspline <- function(trans,nonh, covm=NULL, splinelist=NULL,degre
       C[,,,b] <-  array(1,dim(covm))*(covm==b)
     }
   }
+
+  if (npar4 >0) {
+    D <- array(0,c(dim(trans),npar4))
+    for (b in 1:npar4) {
+      D[,,b] <-  array(1,dim(inform))*(inform==b)
+    }
+  }
+
 
   outfun <- function(t,z,x) {
     #Establish the spline basis points and put them into a vector length npar2
@@ -560,6 +722,13 @@ intens_generate_bspline <- function(trans,nonh, covm=NULL, splinelist=NULL,degre
         }
       }
     }
+    if (npar4 >0) {
+      l <- length(z)
+      for (b in 1:npar4) {
+        lQ <- lQ + D[,,b]*(t - z[l])*x[b+npar1+npar2+npar3]
+        DlQ[,,npar1 +npar2 + npar3 + b] <- D[,,b]*(t - z[l])
+      }
+    }
     Q <- exp(lQ)*(trans>0)
     diag(Q) <- -apply(Q,1,sum)
     for (b in 1:npar) {
@@ -575,8 +744,11 @@ intens_generate_bspline <- function(trans,nonh, covm=NULL, splinelist=NULL,degre
   return(outfun)
 }
 
+
+
+
 #Version that will return arrays of times
-emat_generate.nhm <- function(emat, ecovm=NULL, censor=NULL, censor.states=NULL, death=NULL, death.states=NULL, intens, nparQ,nparI,covnames=NULL) {
+emat_generate.nhm <- function(emat, ecovm=NULL, censor=NULL, censor.states=NULL, death=NULL, death.states=NULL, intens, nparQ,nparI,covnames=NULL,phasemap,ltrunc=NULL) {
   npar1 <- max(emat)
   if (!is.null(ecovm)) {
     npar2 <- max(ecovm)
@@ -584,14 +756,19 @@ emat_generate.nhm <- function(emat, ecovm=NULL, censor=NULL, censor.states=NULL,
     npar2 <-0
   }
 
-  gtname <- get_names(emat,nonh=NULL,covm=ecovm,covnames,model="emat")
+  if (npar1+npar2 >0) {
+  gtname <- get_names(emat,nonh=NULL,covm=ecovm,inform=NULL,covnames,model="emat")
   parnames <- gtname$parnames
   parclass <- gtname$parclass
-
+  }else{
+  parnames <- parclass <- NULL
+  }
   #Main part follows in a similar way to Qmat case:
+  if (npar1 >0) {
   B <- array(0,c(dim(emat),npar1))
   for (b in 1:npar1) {
     B[,,b] <- array(1,dim(emat))*(emat==b)
+  }
   }
   if (npar2 > 0) {
     C <- array(0,c(dim(ecovm),npar2))
@@ -602,20 +779,31 @@ emat_generate.nhm <- function(emat, ecovm=NULL, censor=NULL, censor.states=NULL,
   ematI <- 1*(emat!=0)
   diag(ematI) <- 1
 
+  # if (length(censor)>0) {
+  #   phasemapstar <- c(phasemap, max(phasemap)+1:length(censor))
+  # }else{
+  #   phasemapstar <- phasemap
+  # }
+
   outfun <- function(state,t,z,x,intens,override=FALSE) {
     if (is.vector(z)) z<-matrix(z,c(1,length(z)))
     if (override) death<-FALSE
-    e <- array(0,c(dim(emat)[1],length(state)))
-    de <- array(0,c(dim(emat)[1],length(state),nparQ + npar1+npar2+nparI))
+    e <- array(0,c(length(phasemap),length(state)))
+    de <- array(0,c(length(phasemap), length(state),nparQ + npar1+npar2+nparI))
+    #e <- array(0,c(dim(emat)[1],length(state)))
+    #de <- array(0,c(dim(emat)[1],length(state),nparQ + npar1+npar2+nparI))
     EI <- lE <- E <- array(0,c(dim(emat)[1],dim(emat)[2],length(state)))
     DlE <- DE <- array(0,c(dim(emat)[1],dim(emat)[2],nparQ + npar1+npar2+nparI,length(state)))
 
     E0 <- array(0,c(dim(emat)[1],dim(emat)[2] + length(censor),length(state)))
     DE0 <- array(0,c(dim(emat)[1],dim(emat)[2]+ length(censor),nparQ + npar1+npar2+nparI,length(state)))
+
     for (k in 1:length(state)) {
+      if (npar1>0) {
       DlE[,,(1:npar1) + nparQ,k] <- B
       for (b in 1:npar1) {
         lE[,,k] <- lE[,,k] + B[,,b]*x[b+nparQ]
+      }
       }
       if (npar2 >0) {
         for (v in 1:dim(z)[2]) {
@@ -625,6 +813,7 @@ emat_generate.nhm <- function(emat, ecovm=NULL, censor=NULL, censor.states=NULL,
           }
         }
       }
+      if (npar1 >0) {
       EI[,,k] <- exp(lE[,,k])*ematI
       Enorm <- array(rep(apply(EI[,,k],1,sum),dim(emat)[1]),dim(emat))
       E[,,k] <- EI[,,k]/Enorm
@@ -632,35 +821,130 @@ emat_generate.nhm <- function(emat, ecovm=NULL, censor=NULL, censor.states=NULL,
         Dlnorm <- array(rep(apply(DlE[,,b+nparQ,k]*EI[,,k],1,sum),dim(emat)[1]),dim(emat))
         DE[,,b+nparQ,k] <- E[,,k]*(DlE[,,b+nparQ,k] - Dlnorm/Enorm)
       }
+      }else{
+        E[,,k]<-ematI
+        DE[,,,k]<-0
+      }
       #Now expand to include death and censoring...
 
       E0[1:dim(emat)[1], 1:dim(emat)[2],k] <- E[,,k]
       DE0[1:dim(emat)[1], 1:dim(emat)[2],,k] <- DE[,,,k]
 
+      #Use phasemap to expand the matrices/arrays to have repeat rows
+      E0star <- E0[phasemap,,,drop=FALSE]
+      DE0star <- DE0[phasemap,,,,drop=FALSE]
+
       if (death) {
+        #Should only need to do this if the state[k] corresponds to a death
+
         qintens <- intens(t[k],unlist(z[k,]),x)
         #First the absorbing states
+
+        #NEED TO ADJUST TO COPE WITH PHASEMAP.
         for (i in death.states) {
-          E0[,i,k] <- qintens$q[,i]
-          DE0[,i,1:nparQ,k] <- qintens$qp[,i,]
+          E0star[,phasemap[i],k] <- qintens$q[,i]
+          DE0star[,phasemap[i],1:nparQ,k] <- qintens$qp[,i,]
         }
       }
       if (length(censor)>0) {
         for (i in 1:length(censor)) {
-          E0[censor.states[[i]],i+dim(emat)[2],k] <- 1
+          E0star[censor.states[[i]],i+dim(emat)[2],k] <- 1
         }
       }
-      e[,k] <- E0[,state[k],k]
-      de[,k,] <- DE0[,state[k],,k]
+      tryCatch(e[,k] <- E0star[,state[k],k],error=function(e) print(c("Incorrect e",dim(e),";",dim(E0star),";",k,";",state[k])))
+      tryCatch(de[,k,] <- DE0star[,state[k],,k],error=function(e) print(c("Incorrect de",dim(e),";",dim(DE0star),";",k,";",state[k])))
     }
     E <- list(e=e,de=de)
     return(E)
   }
+  attr(outfun,"nostate") <- max(phasemap)
   attr(outfun,"parclass") <- parclass
   attr(outfun,"parnames") <- parnames
   attr(outfun,"npar") <- npar1 + npar2
+  attr(outfun,"ltrunc") <- ltrunc
   return(outfun)
 }
+
+
+
+
+
+emat_generate_bespoke.nhm <- function(emat, censor=NULL, censor.states=NULL, death=NULL, death.states=NULL, intens, nparQ,nparI,covnames=NULL,phasemap,ltrunc=NULL) {
+  nparE <- attr(emat,"npar")
+  nostate <- max(phasemap)
+  #Use the supplied parameter names and classes, if available.
+  parnames <- attr(emat,"parnames")
+  parclass <- attr(emat,"parclass")
+  if (nparE >0) { 
+   if (is.null(parnames)) parnames <- paste("Bespoke Emat Parameter",1:nparE)
+   if (is.null(parclass)) parclass <- rep("Emat",nparE)
+  }
+  
+  outfun <- function(state,t,z,x,intens,override=FALSE) {
+    if (is.vector(z)) z<-matrix(z,c(1,length(z)))
+    if (override) death<-FALSE
+    e <- array(0,c(length(phasemap),length(state)))
+    de <- array(0,c(length(phasemap), length(state),nparQ + nparE+nparI))
+    #e <- array(0,c(dim(emat)[1],length(state)))
+    #de <- array(0,c(dim(emat)[1],length(state),nparQ + npar1+npar2+nparI))
+    EI <- lE <- E <- array(0,c(nostate,nostate,length(state)))
+    DlE <- DE <- array(0,c(nostate,nostate,nparQ + nparE+nparI,length(state)))
+
+    E0 <- array(0,c(nostate,nostate + length(censor),length(state)))
+    DE0 <- array(0,c(nostate,nostate+ length(censor),nparQ + nparE+nparI,length(state)))
+
+    for (k in 1:length(state)) {
+      if (nparE>0) {
+         e00 <- emat(t[k],unlist(z[k,]),x[(nparQ+1):(nparQ+nparE)])
+      }else{
+         e00 <- emat(t[k],unlist(z[k,]),x)
+      }
+      E[,,k] <- e00$e
+      if (nparE>0) DE[,,nparQ + (1:nparE),k] <- e00$de
+
+      #Now expand to include death and censoring...
+
+      E0[1:nostate, 1:nostate,k] <- E[,,k]
+      DE0[1:nostate, 1:nostate,,k] <- DE[,,,k]
+
+      #Use phasemap to expand the matrices/arrays to have repeat rows
+      E0star <- E0[phasemap,,,drop=FALSE]
+      DE0star <- DE0[phasemap,,,,drop=FALSE]
+
+      if (death) {
+        #Should only need to do this if the state[k] corresponds to a death
+
+        qintens <- intens(t[k],unlist(z[k,]),x)
+        #First the absorbing states
+
+        #NEED TO ADJUST TO COPE WITH PHASEMAP.
+        for (i in death.states) {
+          E0star[,phasemap[i],k] <- qintens$q[,i]
+          DE0star[,phasemap[i],1:nparQ,k] <- qintens$qp[,i,]
+        }
+      }
+      if (length(censor)>0) {
+        for (i in 1:length(censor)) {
+          E0star[censor.states[[i]],i+nostate,k] <- 1
+        }
+      }
+      tryCatch(e[,k] <- E0star[,state[k],k],error=function(e) print(c("Incorrect e",dim(e),";",dim(E0star),";",k,";",state[k])))
+      tryCatch(de[,k,] <- DE0star[,state[k],,k],error=function(e) print(c("Incorrect de",dim(e),";",dim(DE0star),";",k,";",state[k])))
+    }
+    E <- list(e=e,de=de)
+    return(E)
+  }
+  attr(outfun,"nostate") <- max(phasemap)
+  attr(outfun,"parclass") <- parclass
+  attr(outfun,"parnames") <- parnames
+  attr(outfun,"npar") <- nparE
+  attr(outfun,"ltrunc") <- ltrunc
+  return(outfun)
+}
+
+
+
+
 
 
 
@@ -674,7 +958,7 @@ initp_generate.nhm <- function(initp, initcovm=NULL, nparQ, nparE, covnames=NULL
   }
 
   #Need to set up a name generation approach for initp...
-  gtname <- get_names(initp,nonh=NULL,covm=initcovm,covnames,model="initp")
+  gtname <- get_names(initp,nonh=NULL,covm=initcovm,inform=NULL,covnames,model="initp")
 
   parnames <- gtname$parnames
   parclass <- gtname$parclass
@@ -741,3 +1025,5 @@ generate_inits_nhm <- function(data,trans,censor=NULL, censor.states=NULL,npar) 
   pars[1:max(trans)]<-par_ests
   return(pars)
 }
+
+
